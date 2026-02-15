@@ -480,6 +480,11 @@ def handle_mqtt_topics_command(sender_id, interface):
     lines = ["🏆 Top MQTT Topics 🏆"]
     for idx, (base_topic, subtopic, message_count) in enumerate(rows, start=1):
         topic = base_topic if not subtopic else f"{base_topic}/{subtopic}"
+        # Remove msh/US/MI prefix to save space
+        if topic.startswith("msh/US/MI/"):
+            topic = topic[10:]  # Remove "msh/US/MI/"
+        elif topic == "msh/US/MI":
+            topic = "(base)"
         lines.append(f"{idx:02d}. {topic} — {message_count}")
     send_message("\n".join(lines), sender_id, interface)
 
