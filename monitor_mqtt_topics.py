@@ -44,6 +44,8 @@ def create_connection(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
+    # Limit WAL file to ~20MB (5000 pages * 4KB default page size)
+    conn.execute("PRAGMA wal_autocheckpoint=5000;")
     return conn
 
 
