@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import random
+import requests
 import sqlite3
 import time
 
@@ -56,6 +57,8 @@ def build_menu(items, menu_name):
             menu_str += "[W]all of Shame\n"
         elif item.strip() == 'T':
             menu_str += "[T]op MQTT Topics\n"
+        elif item.strip() == 'R':
+            menu_str += "Weathe[R]\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -114,6 +117,91 @@ def handle_fortune_command(sender_id, interface):
         send_message(decorated_fortune, sender_id, interface)
     except Exception as e:
         send_message(f"Error generating fortune: {e}", sender_id, interface)
+
+
+def handle_weather_command(sender_id, interface, location=None):
+    """
+    Fetch and display weather information for a given location.
+    Location can be a zip code, or city,state format.
+    If no location provided, uses default from config.
+    """
+    try:
+        # Get API key and default location from config
+        api_key = config.get('weather', 'api_key', fallback=None)
+        
+        if not api_key or api_key == 'YOUR_API_KEY_HERE':
+            send_message("⚠️ Weather service not configured. Please set API key in config.ini", sender_id, interface)
+            return
+        
+        # Use provided location or default from config
+        if not location:
+            location = config.get('weather', 'default_location', fallback='48336')
+        
+        units = config.get('weather', 'units', fallback='imperial')
+        
+        # Build API URL - OpenWeatherMap API
+        base_url = "http://api.openweathermap.org/data/2.5/weather"
+        
+        # Determine if location is a zip code or city name
+        if location.isdigit():
+            # Assume US zip code
+            params = {
+                'zip': f"{location},US",
+                'appid': api_key,
+                'units': units
+            }
+        else:
+            # Assume city,state or city,country format
+            params = {
+                'q': location,
+                'appid': api_key,
+                'units': units
+            }
+        
+        # Make API request
+        response = requests.get(base_url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Extract weather data
+            location_name = data.get('name', 'Unknown')
+            temp = data['main']['temp']
+            feels_like = data['main']['feels_like']
+            humidity = data['main']['humidity']
+            description = data['weather'][0]['description'].title()
+            wind_speed = data['wind']['speed']
+            
+            # Determine temperature unit
+            temp_unit = '°F' if units == 'imperial' else '°C'
+            wind_unit = 'mph' if units == 'imperial' else 'm/s'
+            
+            # Format weather report
+            weather_report = (
+                f"🌤️ Weather for {location_name} 🌤️\n"
+                f"Condition: {description}\n"
+                f"Temp: {temp:.1f}{temp_unit}\n"
+                f"Feels Like: {feels_like:.1f}{temp_unit}\n"
+                f"Humidity: {humidity}%\n"
+                f"Wind: {wind_speed:.1f} {wind_unit}"
+            )
+            
+            send_message(weather_report, sender_id, interface)
+        elif response.status_code == 404:
+            send_message(f"❌ Location '{location}' not found. Try zip code or city,state format.", sender_id, interface)
+        elif response.status_code == 401:
+            send_message("⚠️ Invalid API key. Please check config.ini", sender_id, interface)
+        else:
+            send_message(f"❌ Weather service error: {response.status_code}", sender_id, interface)
+            
+    except requests.exceptions.Timeout:
+        send_message("❌ Weather service timeout. Please try again.", sender_id, interface)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Weather API request error: {e}")
+        send_message("❌ Unable to fetch weather data.", sender_id, interface)
+    except Exception as e:
+        logging.error(f"Error in weather command: {e}")
+        send_message("❌ Error retrieving weather.", sender_id, interface)
 
 
 def handle_stats_steps(sender_id, message, step, interface):
@@ -703,5 +791,6 @@ def handle_list_channels_command(sender_id, interface):
 
 def handle_quick_help_command(sender_id, interface):
     response = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\nSM,, - Send "
-                "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n")
+                "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n"
+                "WX - Weather (WX or WX,location)\n")
     send_message(response, sender_id, interface)
