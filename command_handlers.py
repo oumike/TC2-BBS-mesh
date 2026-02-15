@@ -1,6 +1,8 @@
 import configparser
 import logging
+import os
 import random
+import sqlite3
 import time
 
 from meshtastic import BROADCAST_NUM
@@ -52,6 +54,8 @@ def build_menu(items, menu_name):
             menu_str += "[F]ortune\n"
         elif item.strip() == 'W':
             menu_str += "[W]all of Shame\n"
+        elif item.strip() == 'T':
+            menu_str += "[T]op MQTT Topics\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -354,6 +358,42 @@ def handle_wall_of_shame_command(sender_id, interface):
     if response == "Devices with battery levels below 20%:\n":
         response = "No devices with battery levels below 20% found."
     send_message(response, sender_id, interface)
+
+
+def handle_mqtt_topics_command(sender_id, interface):
+    db_path = 'mqtt_counts.db'
+    if not os.path.exists(db_path):
+        send_message("MQTT topic statistics are unavailable.", sender_id, interface)
+        return
+
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.execute(
+                """
+                SELECT base_topic, subtopic, message_count
+                FROM topic_counts
+                ORDER BY message_count DESC
+                LIMIT 15
+                """
+            )
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logging.error(f"Error reading MQTT topic stats: {exc}")
+        send_message("Unable to read MQTT topic statistics.", sender_id, interface)
+        return
+
+    if not rows:
+        send_message("MQTT topic statistics are unavailable.", sender_id, interface)
+        return
+
+    lines = ["🏆 Top MQTT Topics 🏆"]
+    for idx, (base_topic, subtopic, message_count) in enumerate(rows, start=1):
+        topic = base_topic if not subtopic else f"{base_topic}/{subtopic}"
+        lines.append(f"{idx:02d}. {topic} — {message_count}")
+    send_message("\n".join(lines), sender_id, interface)
 
 
 def handle_channel_directory_command(sender_id, interface):
@@ -663,5 +703,5 @@ def handle_list_channels_command(sender_id, interface):
 
 def handle_quick_help_command(sender_id, interface):
     response = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\nSM,, - Send "
-                "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\n")
+                "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n")
     send_message(response, sender_id, interface)

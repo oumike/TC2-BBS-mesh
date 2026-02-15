@@ -196,6 +196,9 @@ def main() -> None:
         if canonical_subtopic is None:
             logging.debug("Skipping %s (untracked subtopic)", message.topic)
             return
+        if "map" in canonical_subtopic.lower():
+            logging.debug("Skipping %s (contains 'map')", message.topic)
+            return
         new_total = topic_counter.increment(canonical_subtopic)
         if new_total is not None:
             label = canonical_subtopic or "<base>"
