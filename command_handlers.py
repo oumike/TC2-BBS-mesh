@@ -478,7 +478,7 @@ def handle_mqtt_topics_command(sender_id, interface):
         return
 
     # Send header first
-    send_message("🏆 Top MQTT Topics 🏆", sender_id, interface)
+    send_message("🏆 Top 15 Topics 🏆", sender_id, interface)
     time.sleep(3)  # Delay before sending first chunk
     
     # Build all topic lines
@@ -503,7 +503,7 @@ def handle_mqtt_topics_command(sender_id, interface):
     
     # Send end message
     time.sleep(3)
-    send_message("🏁 End of MQTT Topics 🏁", sender_id, interface)
+    send_message("🏁 End of Topics 🏁", sender_id, interface)
 
 
 def handle_channel_directory_command(sender_id, interface):
