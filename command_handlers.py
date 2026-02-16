@@ -500,6 +500,10 @@ def handle_mqtt_topics_command(sender_id, interface):
         # Add delay between chunks to prevent message loss on mesh network
         if i + chunk_size < len(topic_lines):
             time.sleep(3)
+    
+    # Send end message
+    time.sleep(3)
+    send_message("🏁 End of MQTT Topics 🏁", sender_id, interface)
 
 
 def handle_channel_directory_command(sender_id, interface):
