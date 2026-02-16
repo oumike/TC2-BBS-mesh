@@ -6,4 +6,4 @@ venv/
 .idea
 config.ini
 fortunes.txt
-mqtt_counts.db
+mqtt_counts.*

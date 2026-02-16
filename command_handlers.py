@@ -477,7 +477,12 @@ def handle_mqtt_topics_command(sender_id, interface):
         send_message("MQTT topic statistics are unavailable.", sender_id, interface)
         return
 
-    lines = ["🏆 Top MQTT Topics 🏆"]
+    # Send header first
+    send_message("🏆 Top MQTT Topics 🏆", sender_id, interface)
+    time.sleep(3)  # Delay before sending first chunk
+    
+    # Build all topic lines
+    topic_lines = []
     for idx, (base_topic, subtopic, message_count) in enumerate(rows, start=1):
         topic = base_topic if not subtopic else f"{base_topic}/{subtopic}"
         # Remove msh/US/MI prefix to save space
@@ -485,8 +490,16 @@ def handle_mqtt_topics_command(sender_id, interface):
             topic = topic[10:]  # Remove "msh/US/MI/"
         elif topic == "msh/US/MI":
             topic = "(base)"
-        lines.append(f"{idx:02d}. {topic} — {message_count}")
-    send_message("\n".join(lines), sender_id, interface)
+        topic_lines.append(f"{idx:02d}. {topic} — {message_count}")
+    
+    # Send in chunks of 3 lines per message
+    chunk_size = 3
+    for i in range(0, len(topic_lines), chunk_size):
+        chunk = topic_lines[i:i + chunk_size]
+        send_message("\n".join(chunk), sender_id, interface)
+        # Add delay between chunks to prevent message loss on mesh network
+        if i + chunk_size < len(topic_lines):
+            time.sleep(3)
 
 
 def handle_channel_directory_command(sender_id, interface):
