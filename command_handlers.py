@@ -490,7 +490,7 @@ def handle_mqtt_topics_command(sender_id, interface):
             topic = topic[10:]  # Remove "msh/US/MI/"
         elif topic == "msh/US/MI":
             topic = "(base)"
-        topic_lines.append(f"{idx:02d}. {topic} — {message_count}")
+        topic_lines.append(f"{idx:02d}. {topic} — {message_count:,}")
     
     # Send in chunks of 3 lines per message
     chunk_size = 3

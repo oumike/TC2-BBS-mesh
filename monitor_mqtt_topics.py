@@ -204,7 +204,7 @@ def main() -> None:
         new_total = topic_counter.increment(canonical_subtopic)
         if new_total is not None:
             label = canonical_subtopic or "<base>"
-            logging.info("Count for %s is now %s", label, new_total)
+            logging.info("Count for %s is now %s", label, f"{new_total:,}")
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
