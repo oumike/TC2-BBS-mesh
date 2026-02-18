@@ -59,6 +59,8 @@ def build_menu(items, menu_name):
             menu_str += "[T]op MQTT Topics\n"
         elif item.strip() == 'R':
             menu_str += "Weathe[R]\n"
+        elif item.strip() == 'A':
+            menu_str += "[A]nnouncement\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -816,3 +818,202 @@ def handle_quick_help_command(sender_id, interface):
                 "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n"
                 "WX - Weather (WX or WX,location)\n")
     send_message(response, sender_id, interface)
+
+
+def get_channel_list(interface):
+    """
+    Retrieve the list of channels from the Meshtastic device.
+    
+    Args:
+        interface: The Meshtastic interface object
+        
+    Returns:
+        list: List of channel dictionaries with channel information
+    """
+    try:
+        channels = []
+        
+        # Access channels from the local node
+        if hasattr(interface, 'localNode') and hasattr(interface.localNode, 'channels'):
+            for idx, channel in enumerate(interface.localNode.channels):
+                if channel.settings and (channel.settings.name or idx == 0):
+                    channel_info = {
+                        'index': idx,
+                        'name': channel.settings.name if channel.settings.name else f"Channel {idx}",
+                        'role': channel.role
+                    }
+                    channels.append(channel_info)
+        
+        return channels
+    except Exception as e:
+        logging.error(f"Error retrieving channels: {e}")
+        return []
+
+
+def handle_announcement_command(sender_id, interface):
+    """Handle the announcement command - shows available channels."""
+    try:
+        channels = get_channel_list(interface)
+        
+        if not channels:
+            send_message("❌ No channels available on device.", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        # Send header message first
+        send_message("📢 ANNOUNCEMENT 📢\nSelect a channel to broadcast to:", sender_id, interface)
+        time.sleep(3)
+        
+        # Split channels into two messages
+        mid_point = (len(channels) + 1) // 2
+        
+        # First half of channels
+        response1 = ""
+        for channel in channels[:mid_point]:
+            if channel['name'] == "Channel 0":
+                display_name = "Default"
+            else:
+                display_name = channel['name']
+
+            response1 += f"[{channel['index']}] {display_name}\n"
+        send_message(response1.strip(), sender_id, interface)
+        time.sleep(3)
+        
+        # Second half of channels
+        response2 = ""
+        for channel in channels[mid_point:]:
+            if channel['name'] == "Channel 0":
+                display_name = "Default"
+            else:
+                display_name = channel['name']
+            response2 += f"[{channel['index']}] {display_name}\n"
+        send_message(response2.strip(), sender_id, interface)
+        time.sleep(3)
+        
+        # Send instructions as separate message
+        send_message("Reply with channel number or X to cancel", sender_id, interface)
+        
+        update_user_state(sender_id, {'command': 'ANNOUNCEMENT', 'step': 1, 'channels': channels})
+        
+    except Exception as e:
+        logging.error(f"Error in announcement command: {e}")
+        send_message("❌ Error retrieving channels.", sender_id, interface)
+        handle_help_command(sender_id, interface, 'utilities')
+
+
+def handle_announcement_steps(sender_id, message, step, state, interface):
+    """Handle the multi-step announcement process."""
+    message_lower = message.lower().strip()
+    
+    try:
+        if step == 1:
+            # Channel selection
+            if message_lower == 'x':
+                send_message("Announcement cancelled.", sender_id, interface)
+                handle_help_command(sender_id, interface, 'utilities')
+                return
+            
+            try:
+                channel_idx = int(message.strip())
+                channels = state.get('channels', [])
+                
+                # Validate channel selection
+                selected_channel = next((ch for ch in channels if ch['index'] == channel_idx), None)
+                
+                if not selected_channel:
+                    send_message("Invalid channel number. Please try again or send X to cancel.", sender_id, interface)
+                    return
+                
+                send_message(f"Selected: {selected_channel['name']}\nEnter your announcement message.\nType END on a new line when finished.", sender_id, interface)
+                update_user_state(sender_id, {
+                    'command': 'ANNOUNCEMENT',
+                    'step': 2,
+                    'channel_idx': channel_idx,
+                    'channel_name': selected_channel['name'],
+                    'message': ''
+                })
+                
+            except ValueError:
+                send_message("Invalid input. Please enter a channel number or X to cancel.", sender_id, interface)
+                return
+        
+        elif step == 2:
+            # Message input
+            if message_lower == 'end':
+                announcement_text = state.get('message', '').strip()
+                
+                if not announcement_text:
+                    send_message("No message entered. Announcement cancelled.", sender_id, interface)
+                    handle_help_command(sender_id, interface, 'utilities')
+                    return
+                
+                # Show preview and ask for confirmation
+                channel_name = state.get('channel_name', 'Unknown')
+                preview = f"📢 PREVIEW 📢\nChannel: {channel_name}\n---\n{announcement_text}\n---\nSend this? [Y]es or [N]o"
+                send_message(preview, sender_id, interface)
+                update_user_state(sender_id, {
+                    'command': 'ANNOUNCEMENT',
+                    'step': 3,
+                    'channel_idx': state['channel_idx'],
+                    'channel_name': channel_name,
+                    'message': announcement_text
+                })
+            else:
+                # Accumulate message
+                current_message = state.get('message', '')
+                if current_message:
+                    current_message += '\n'
+                current_message += message
+                
+                state['message'] = current_message
+                update_user_state(sender_id, state)
+        
+        elif step == 3:
+            # Confirmation
+            if message_lower == 'y':
+                channel_idx = state.get('channel_idx')
+                announcement_text = state.get('message', '')
+                
+                # Send the announcement
+                from meshtastic import BROADCAST_NUM
+                
+                # Split into chunks if needed
+                max_payload_size = 200
+                chunks = [announcement_text[i:i + max_payload_size] 
+                         for i in range(0, len(announcement_text), max_payload_size)]
+                
+                logging.info(f"Sending announcement to channel {channel_idx} in {len(chunks)} chunk(s)")
+                
+                for i, chunk in enumerate(chunks):
+                    try:
+                        interface.sendText(
+                            text=chunk,
+                            destinationId=BROADCAST_NUM,
+                            channelIndex=channel_idx,
+                            wantAck=False,
+                            wantResponse=False
+                        )
+                        logging.info(f"Sent announcement chunk {i+1}/{len(chunks)}")
+                        
+                        if i < len(chunks) - 1:
+                            time.sleep(2)
+                    except Exception as e:
+                        logging.error(f"Error sending announcement chunk {i+1}: {e}")
+                        send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
+                        update_user_state(sender_id, None)
+                        return
+                
+                send_message("✅ Announcement sent successfully!", sender_id, interface)
+                update_user_state(sender_id, None)
+                
+            elif message_lower == 'n':
+                send_message("Announcement cancelled.", sender_id, interface)
+                handle_help_command(sender_id, interface, 'utilities')
+            else:
+                send_message("Please reply with Y to send or N to cancel.", sender_id, interface)
+                
+    except Exception as e:
+        logging.error(f"Error in announcement steps: {e}")
+        send_message(f"❌ Error processing announcement: {e}", sender_id, interface)
+        update_user_state(sender_id, None)
+
