@@ -17,6 +17,8 @@ If you're a Docker user, TC²-BBS Meshtastic is available on Docker Hub!
 - Python 3.x
 - Meshtastic
 - pypubsub
+- paho-mqtt (for MQTT topic monitoring)
+- requests (for weather API integration)
 
 ### Update and Install Git
    
@@ -221,11 +223,161 @@ The following device roles have been working:
 - **Statistics**: View statistics about nodes, hardware, and roles.
 - **Wall of Shame**: View devices with low battery levels.
 - **Fortune Teller**: Get a random fortune. Pulls from the fortunes.txt file. Feel free to edit this file remove or add more if you like.
+- **Weather Information**: Get current weather conditions for any location using OpenWeatherMap API.
+- **MQTT Topic Monitor**: Track and display the most active MQTT topics on the mesh network.
+- **Announcements**: Broadcast messages to specific channels on your Meshtastic device.
+- **JS8Call Integration**: Integrate with JS8Call to receive messages into the BBS.
+
+## Additional Features & Configuration
+
+### Weather Integration
+
+The BBS can fetch and display current weather conditions using the OpenWeatherMap API.
+
+**Configuration** (`config.ini`):
+
+```ini
+[weather]
+api_key = YOUR_API_KEY_HERE
+default_location = 48336
+units = imperial
+```
+
+- **api_key**: Get a free API key from [OpenWeatherMap](https://openweathermap.org/api)
+- **default_location**: ZIP code or "city,state" or "city,country" format
+- **units**: `imperial` (°F) or `metric` (°C)
+
+**Usage**: 
+- Send `WX` to get weather for the default location
+- Send `WX,<location>` for a specific location (e.g., `WX,90210` or `WX,London,UK`)
+- Access via Utilities menu → Weathe[R]
+
+### MQTT Topic Monitoring
+
+A standalone monitoring script (`monitor_mqtt_topics.py`) tracks MQTT message activity on the Meshtastic network and stores statistics in a SQLite database.
+
+**Configuration** (`config.ini`):
+
+```ini
+[mqtt_monitor]
+broker_host = mqtt.meshtastic.org
+broker_port = 1883
+base_topic = msh/US/MI
+username = meshdev
+password = large4cats
+db_path = mqtt_counts.db
+keepalive = 60
+log_level = INFO
+```
+
+**Running the Monitor**:
+
+```sh
+python monitor_mqtt_topics.py
+```
+
+The script runs continuously and tracks message counts per subtopic. You can override any config setting with command-line arguments:
+
+```sh
+python monitor_mqtt_topics.py --base-topic msh/US/CA --log-level DEBUG
+```
+
+**Viewing Statistics**:
+- Send `TT` as a quick command, or
+- Access via Utilities menu → [T]op MQTT Topics
+- Shows the top 15 most active topics from the monitoring database
+
+**Running Monitor Automatically at Boot**:
+
+To have the MQTT monitor script automatically start at boot:
+
+1. **Edit the service file**
+   
+   Edit the `monitor-mqtt-topics.service` file and replace "pi" with your username in these lines:
+   
+   ```sh
+   User=pi
+   WorkingDirectory=/home/pi/TC2-BBS-mesh
+   ExecStart=/home/pi/TC2-BBS-mesh/venv/bin/python3 /home/pi/TC2-BBS-mesh/monitor_mqtt_topics.py
+   ```
+
+2. **Install and enable the service**
+   
+   From the TC2-BBS-mesh directory, run:
+   
+   ```sh
+   sudo cp monitor-mqtt-topics.service /etc/systemd/system/
+   sudo systemctl enable monitor-mqtt-topics.service
+   sudo systemctl start monitor-mqtt-topics.service
+   ```
+   
+   Check the status:
+   ```sh
+   sudo systemctl status monitor-mqtt-topics.service
+   ```
+   
+   View logs:
+   ```sh
+   journalctl -u monitor-mqtt-topics.service -f
+   ```
+
+### Announcements
+
+Broadcast messages to specific channels configured on your Meshtastic device.
+
+**Usage**:
+1. Access via Utilities menu → [A]nnouncement
+2. Select the channel number you want to broadcast to
+3. Type your message
+4. Message will be sent to all devices monitoring that channel
+
+This is useful for making network-wide announcements or alerting specific groups.
+
+### JS8Call Integration
+
+Integrate with JS8Call to bring messages from JS8Call into the BBS system.
+
+**Configuration** (`config.ini`):
+
+```ini
+[js8call]
+host = 192.168.1.100
+port = 2442
+db_file = js8call.db
+js8groups = @GRP1,@GRP2,@GRP3
+store_messages = true
+js8urgent = @URGNT
+```
+
+- **host**: IP address of the system running JS8Call
+- **port**: JS8Call TCP API port (default: 2442)
+- **db_file**: Database file for JS8Call messages (default: js8call.db)
+- **js8groups**: Comma-separated list of JS8Call groups to monitor
+- **store_messages**: Set to `true` to store all messages, `false` for group messages only
+- **js8urgent**: Groups considered urgent (notifications sent to group chat)
+
+Uncomment the section in `config.ini` and configure according to your JS8Call setup.
 
 ## Usage
 
 You interact with the BBS by sending direct messages to the node that's connected to the system running the Python script. Sending any message to it will get a response with the main menu.  
 Make selections by sending messages based on the letter or number in brackets - Send M for [M]ail Menu for example.
+
+### Quick Commands
+
+For faster access, you can use these shortcut commands without navigating through menus:
+
+- **SM,,**`<recipient_id>,<subject>,<message>` - Send Mail directly
+- **CM** - Check Mail
+- **PB,,**`<board_name>,<subject>,<message>` - Post Bulletin directly
+- **CB,,**`<board_name>` - Check Bulletins on a specific board
+- **CHP,,**`<channel_name>,<channel_url>` - Post to Channel Directory
+- **CHL** - List channels in Channel Directory
+- **TT** - Show Top MQTT Topics
+- **WX** - Get weather for default location
+- **WX,**`<location>` - Get weather for specific location (e.g., `WX,90210` or `WX,Paris,FR`)
+
+Send **Q** from the main menu to see the quick command reference on your device.
 
 A video of it in use is available on our YouTube channel:
 

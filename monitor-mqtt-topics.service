@@ -1,0 +1,14 @@
+[Unit]
+Description=Monitor and Count MQTT Topics
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=20
+User=pi
+WorkingDirectory=/home/pi/TC2-BBS-mesh
+ExecStart=/home/pi/TC2-BBS-mesh/venv/bin/python3 /home/pi/TC2-BBS-mesh/monitor_mqtt_topics.py
+
+[Install]
+WantedBy=multi-user.target

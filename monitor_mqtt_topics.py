@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import configparser
 import logging
+import os
 import signal
 import sqlite3
 import threading
@@ -12,25 +14,95 @@ from typing import Optional
 import paho.mqtt.client as mqtt
 
 
+def load_config(config_path: str = "config.ini") -> dict:
+    """Load MQTT monitor configuration from config.ini file."""
+    config = configparser.ConfigParser()
+    defaults = {
+        "broker_host": "mqtt.meshtastic.org",
+        "broker_port": "1883",
+        "base_topic": "msh/US/MI",
+        "username": "meshdev",
+        "password": "large4cats",
+        "db_path": "mqtt_counts.db",
+        "keepalive": "60",
+        "log_level": "INFO",
+    }
+
+    if os.path.exists(config_path):
+        config.read(config_path)
+        if "mqtt_monitor" in config:
+            section = config["mqtt_monitor"]
+            return {
+                "broker_host": section.get("broker_host", defaults["broker_host"]),
+                "broker_port": section.getint("broker_port", int(defaults["broker_port"])),
+                "base_topic": section.get("base_topic", defaults["base_topic"]),
+                "username": section.get("username", defaults["username"]),
+                "password": section.get("password", defaults["password"]),
+                "db_path": section.get("db_path", defaults["db_path"]),
+                "keepalive": section.getint("keepalive", int(defaults["keepalive"])),
+                "log_level": section.get("log_level", defaults["log_level"]),
+            }
+
+    # Return defaults if config file doesn't exist or section is missing
+    return {
+        "broker_host": defaults["broker_host"],
+        "broker_port": int(defaults["broker_port"]),
+        "base_topic": defaults["base_topic"],
+        "username": defaults["username"],
+        "password": defaults["password"],
+        "db_path": defaults["db_path"],
+        "keepalive": int(defaults["keepalive"]),
+        "log_level": defaults["log_level"],
+    }
+
+
 def parse_args() -> argparse.Namespace:
+    config_defaults = load_config()
+
     parser = argparse.ArgumentParser(description="Monitor MQTT topics and tally message counts per subtopic.")
-    parser.add_argument("--broker-host", default="mqtt.meshtastic.org", help="MQTT broker hostname or IP address")
-    parser.add_argument("--broker-port", type=int, default=1883, help="MQTT broker TCP port")
+    parser.add_argument(
+        "--broker-host",
+        default=config_defaults["broker_host"],
+        help=f"MQTT broker hostname or IP address (default: {config_defaults['broker_host']})",
+    )
+    parser.add_argument(
+        "--broker-port",
+        type=int,
+        default=config_defaults["broker_port"],
+        help=f"MQTT broker TCP port (default: {config_defaults['broker_port']})",
+    )
     parser.add_argument(
         "--base-topic",
-        default="msh/US/MI",
-        help="Base topic to monitor; script subscribes to <base-topic>/#",
+        default=config_defaults["base_topic"],
+        help=f"Base topic to monitor; script subscribes to <base-topic>/# (default: {config_defaults['base_topic']})",
     )
     parser.add_argument("--client-id", default=None, help="Custom MQTT client identifier")
-    parser.add_argument("--username", default="meshdev", help="Username for broker authentication")
-    parser.add_argument("--password", default="large4cats", help="Password for broker authentication")
-    parser.add_argument("--db-path", default="mqtt_counts.db", help="Path to SQLite database for storing counts")
-    parser.add_argument("--keepalive", type=int, default=60, help="MQTT keepalive in seconds")
+    parser.add_argument(
+        "--username",
+        default=config_defaults["username"],
+        help=f"Username for broker authentication (default: {config_defaults['username']})",
+    )
+    parser.add_argument(
+        "--password",
+        default=config_defaults["password"],
+        help=f"Password for broker authentication (default: {config_defaults['password']})",
+    )
+    parser.add_argument(
+        "--db-path",
+        default=config_defaults["db_path"],
+        help=f"Path to SQLite database for storing counts (default: {config_defaults['db_path']})",
+    )
+    parser.add_argument(
+        "--keepalive",
+        type=int,
+        default=config_defaults["keepalive"],
+        help=f"MQTT keepalive in seconds (default: {config_defaults['keepalive']})",
+    )
     parser.add_argument(
         "--log-level",
-        default="INFO",
+        default=config_defaults["log_level"],
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging verbosity",
+        help=f"Logging verbosity (default: {config_defaults['log_level']})",
     )
     parser.add_argument(
         "--silent",
