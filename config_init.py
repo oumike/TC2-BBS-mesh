@@ -120,6 +120,14 @@ def initialize_config(config_file: str = None) -> dict[str, Any]:
 
     print(f"Nodes with Urgent board permissions: {allowed_nodes}")
 
+    # Read startup announcement configuration
+    startup_enabled = config.getboolean('startup', 'enabled', fallback=False)
+    startup_channel_index = config.getint('startup', 'channel_index', fallback=0)
+    startup_message = config.get('startup', 'message', fallback='TC²-BBS is online and ready!')
+
+    if startup_enabled:
+        print(f"Startup announcement enabled: Will send to channel {startup_channel_index}")
+
     return {
         'config': config,
         'interface_type': interface_type,
@@ -127,7 +135,10 @@ def initialize_config(config_file: str = None) -> dict[str, Any]:
         'port': port,
         'bbs_nodes': bbs_nodes,
         'allowed_nodes': allowed_nodes,
-        'mqtt_topic': 'meshtastic.receive'
+        'mqtt_topic': 'meshtastic.receive',
+        'startup_enabled': startup_enabled,
+        'startup_channel_index': startup_channel_index,
+        'startup_message': startup_message
     }
 
 

@@ -17,7 +17,7 @@ from db_operations import (
 from utils import (
     get_node_id_from_num, get_node_info,
     get_node_short_name, send_message,
-    update_user_state
+    update_user_state, send_startup_announcement
 )
 
 # Read the configuration for menu options
@@ -61,6 +61,8 @@ def build_menu(items, menu_name):
             menu_str += "Weathe[R]\n"
         elif item.strip() == 'A':
             menu_str += "[A]nnouncement\n"
+        elif item.strip() == 'O':
+            menu_str += "[O]nline\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -974,6 +976,9 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
                 channel_idx = state.get('channel_idx')
                 announcement_text = state.get('message', '')
                 
+                # Prepend "ANNOUNCEMENT: " to the message
+                announcement_text = f"ANNOUNCEMENT: {announcement_text}"
+                
                 # Send the announcement
                 from meshtastic import BROADCAST_NUM
                 
@@ -1016,4 +1021,33 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
         logging.error(f"Error in announcement steps: {e}")
         send_message(f"❌ Error processing announcement: {e}", sender_id, interface)
         update_user_state(sender_id, None)
+
+
+def handle_online_announcement_command(sender_id, interface):
+    """Handle the online announcement command - sends the configured startup announcement."""
+    try:
+        # Get startup announcement configuration
+        startup_enabled = config.getboolean('startup', 'enabled', fallback=False)
+        startup_channel_index = config.getint('startup', 'channel_index', fallback=0)
+        startup_message = config.get('startup', 'message', fallback='TC²-BBS is online and ready!')
+        
+        if not startup_enabled:
+            send_message("⚠️ Startup announcement is not configured. Please enable it in config.ini", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        # Send confirmation to sender
+        send_message(f"📢 Sending online announcement to channel {startup_channel_index}...", sender_id, interface)
+        
+        # Send the startup announcement
+        send_startup_announcement(interface, startup_channel_index, startup_message)
+        
+        # Confirm success
+        send_message("✅ Online announcement sent successfully!", sender_id, interface)
+        handle_help_command(sender_id, interface, 'utilities')
+        
+    except Exception as e:
+        logging.error(f"Error in online announcement command: {e}")
+        send_message(f"❌ Error sending online announcement: {e}", sender_id, interface)
+        handle_help_command(sender_id, interface, 'utilities')
 

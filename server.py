@@ -20,6 +20,7 @@ from db_operations import initialize_database
 from js8call_integration import JS8CallClient
 from message_processing import on_receive
 from pubsub import pub
+from utils import send_startup_announcement
 
 # General logging
 logging.basicConfig(
@@ -78,6 +79,16 @@ def main():
 
     if js8call_client.db_conn:
         js8call_client.connect()
+
+    # Send startup announcement if configured
+    if system_config['startup_enabled']:
+        logging.info("Waiting 10 seconds before sending startup announcement...")
+        time.sleep(10)  # Wait for the interface to be fully ready
+        send_startup_announcement(
+            interface,
+            system_config['startup_channel_index'],
+            system_config['startup_message']
+        )
 
     try:
         while True:

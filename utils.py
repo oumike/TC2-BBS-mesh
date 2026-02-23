@@ -85,3 +85,42 @@ def send_channel_to_bbs_nodes(name, url, bbs_nodes, interface):
     message = f"CHANNEL|{name}|{url}"
     for node_id in bbs_nodes:
         send_message(message, node_id, interface)
+
+
+def send_startup_announcement(interface, channel_index, message_text):
+    """
+    Send a startup announcement to a specific channel.
+    
+    Args:
+        interface: The Meshtastic interface object
+        channel_index: The channel index to send the announcement to
+        message_text: The message to send
+    """
+    try:
+        from meshtastic import BROADCAST_NUM
+        
+        logging.info(f"Sending startup announcement to channel {channel_index}: {message_text}")
+        
+        # Split into chunks if needed
+        max_payload_size = 200
+        chunks = [message_text[i:i + max_payload_size] 
+                 for i in range(0, len(message_text), max_payload_size)]
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                interface.sendText(
+                    text=chunk,
+                    destinationId=BROADCAST_NUM,
+                    channelIndex=channel_index,
+                    wantAck=False,
+                    wantResponse=False
+                )
+                logging.info(f"Sent startup announcement chunk {i+1}/{len(chunks)}")
+                
+                if i < len(chunks) - 1:
+                    time.sleep(2)
+            except Exception as e:
+                logging.error(f"Error sending startup announcement chunk {i+1}: {e}")
+                
+    except Exception as e:
+        logging.error(f"Error sending startup announcement: {e}")
