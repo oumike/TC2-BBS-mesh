@@ -172,6 +172,8 @@ def handle_weather_command(sender_id, interface, location=None):
             location_name = data.get('name', 'Unknown')
             temp = data['main']['temp']
             feels_like = data['main']['feels_like']
+            temp_min = data['main']['temp_min']
+            temp_max = data['main']['temp_max']
             humidity = data['main']['humidity']
             description = data['weather'][0]['description'].title()
             wind_speed = data['wind']['speed']
@@ -186,6 +188,7 @@ def handle_weather_command(sender_id, interface, location=None):
                 f"Condition: {description}\n"
                 f"Temp: {temp:.1f}{temp_unit}\n"
                 f"Feels Like: {feels_like:.1f}{temp_unit}\n"
+                f"High/Low: {temp_max:.1f}/{temp_min:.1f}{temp_unit}\n"
                 f"Humidity: {humidity}%\n"
                 f"Wind: {wind_speed:.1f} {wind_unit}"
             )
@@ -863,7 +866,7 @@ def handle_announcement_command(sender_id, interface):
             return
         
         # Send header message first
-        send_message("📢 ANNOUNCEMENT 📢\nSelect a channel to broadcast to:", sender_id, interface)
+        send_message("� ANNOUNCEMENT 📣\nSelect a channel to broadcast to:", sender_id, interface)
         time.sleep(3)
         
         # Split channels into two messages
@@ -951,7 +954,7 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
                 
                 # Show preview and ask for confirmation
                 channel_name = state.get('channel_name', 'Unknown')
-                preview = f"📢 PREVIEW 📢\nChannel: {channel_name}\n---\n{announcement_text}\n---\nSend this? [Y]es or [N]o"
+                preview = f"� PREVIEW 📣\nChannel: {channel_name}\n---\n{announcement_text}\n---\nSend this? [Y]es or [N]o"
                 send_message(preview, sender_id, interface)
                 update_user_state(sender_id, {
                     'command': 'ANNOUNCEMENT',
@@ -977,7 +980,7 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
                 announcement_text = state.get('message', '')
                 
                 # Prepend "ANNOUNCEMENT: " to the message
-                announcement_text = f"ANNOUNCEMENT: {announcement_text}"
+                announcement_text = f"📢 ANNOUNCEMENT 📢 {announcement_text}"
                 
                 # Send the announcement
                 from meshtastic import BROADCAST_NUM
