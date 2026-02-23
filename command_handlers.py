@@ -817,10 +817,13 @@ def handle_list_channels_command(sender_id, interface):
 
 
 def handle_quick_help_command(sender_id, interface):
-    response = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\nSM,, - Send "
-                "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n"
-                "WX - Weather (WX or WX,location)\nQA - Quick Announcement\n")
-    send_message(response, sender_id, interface)
+    response_part_one = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\n"
+                "SM,, - Send Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\n")
+    response_part_two = (   
+                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement\n")
+    send_message(response_part_one, sender_id, interface)
+    time.sleep(3)
+    send_message(response_part_two, sender_id, interface)
 
 
 def get_channel_list(interface):
