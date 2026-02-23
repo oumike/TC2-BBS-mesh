@@ -17,7 +17,7 @@ from db_operations import (
 from utils import (
     get_node_id_from_num, get_node_info,
     get_node_short_name, send_message,
-    update_user_state, send_startup_announcement
+    update_user_state, get_user_state
 )
 
 # Read the configuration for menu options
@@ -61,8 +61,6 @@ def build_menu(items, menu_name):
             menu_str += "Weathe[R]\n"
         elif item.strip() == 'A':
             menu_str += "[A]nnouncement\n"
-        elif item.strip() == 'O':
-            menu_str += "[O]nline\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -821,7 +819,7 @@ def handle_list_channels_command(sender_id, interface):
 def handle_quick_help_command(sender_id, interface):
     response = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\nSM,, - Send "
                 "Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins\nTT - Top MQTT Topics\n"
-                "WX - Weather (WX or WX,location)\nOA - Online Announcement\n")
+                "WX - Weather (WX or WX,location)\nQA - Quick Announcement\n")
     send_message(response, sender_id, interface)
 
 
@@ -1026,31 +1024,63 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
         update_user_state(sender_id, None)
 
 
-def handle_online_announcement_command(sender_id, interface):
-    """Handle the online announcement command - sends the configured startup announcement."""
+def handle_quick_announcement_command(sender_id, interface):
+    """Send the configured quick announcement message to the configured channel."""
     try:
-        # Get startup announcement configuration
-        startup_enabled = config.getboolean('startup', 'enabled', fallback=False)
-        startup_channel_index = config.getint('startup', 'channel_index', fallback=0)
-        startup_message = config.get('startup', 'message', fallback='TC²-BBS is online and ready!')
         
-        if not startup_enabled:
-            send_message("⚠️ Startup announcement is not configured. Please enable it in config.ini", sender_id, interface)
-            handle_help_command(sender_id, interface, 'utilities')
+        # Get quick announcement configuration from [misc] section
+        announcement_channel = config.getint('misc', 'default_announcement_channel', fallback=0)
+        announcement_message = config.get('misc', 'default_message', fallback='BBS Announcement')
+        
+        # Validate that the channel exists
+        channels = get_channel_list(interface)
+        channel_exists = any(ch['index'] == announcement_channel for ch in channels)
+        channel_name = next((ch['name'] for ch in channels if ch['index'] == announcement_channel), "Unknown")
+        if not channel_exists:
+            available = ", ".join([f"{ch['index']} ({ch['name']})" for ch in channels])
+            send_message(f"❌ Channel {announcement_channel} ({channel_name}) not found.\nAvailable channels: {available}", sender_id, interface)
             return
         
-        # Send confirmation to sender
-        send_message(f"📢 Sending online announcement to channel {startup_channel_index}...", sender_id, interface)
+        # Prepend announcement prefix to the message
+        announcement_text = f"📣 ANNOUNCEMENT 📣 {announcement_message}"
         
-        # Send the startup announcement
-        send_startup_announcement(interface, startup_channel_index, startup_message)
+        # Send the announcement
+        from meshtastic import BROADCAST_NUM
+        
+        logging.info(f"BROADCAST_NUM value: {BROADCAST_NUM}")
+        logging.info(f"Channel index: {announcement_channel} ({channel_name})")
+        logging.info(f"Message text: {announcement_text}")
+        
+        # Split into chunks if needed
+        max_payload_size = 200
+        chunks = [announcement_text[i:i + max_payload_size] 
+                 for i in range(0, len(announcement_text), max_payload_size)]
+        
+        logging.info(f"Sending quick announcement to channel {channel_name} ({announcement_channel}) in {len(chunks)} chunk(s)")
+        
+        for i, chunk in enumerate(chunks):
+            try:
+                result = interface.sendText(
+                    text=chunk,
+                    destinationId=BROADCAST_NUM,
+                    channelIndex=announcement_channel,
+                    wantAck=False,
+                    wantResponse=False
+                )
+                logging.info(f"Sent quick announcement chunk {i+1}/{len(chunks)}, result ID: {result.id if result else 'None'}")
+                
+                if i < len(chunks) - 1:
+                    time.sleep(2)
+            except Exception as e:
+                logging.error(f"Error sending quick announcement chunk {i+1}: {e}")
+                send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
+                return
         
         # Confirm success
-        send_message("✅ Online announcement sent successfully!", sender_id, interface)
-        handle_help_command(sender_id, interface, 'utilities')
+        send_message("✅ Announcement sent successfully!", sender_id, interface)
         
     except Exception as e:
-        logging.error(f"Error in online announcement command: {e}")
-        send_message(f"❌ Error sending online announcement: {e}", sender_id, interface)
-        handle_help_command(sender_id, interface, 'utilities')
+        logging.error(f"Error in quick announcement command: {e}")
+        send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
 
+    update_user_state(sender_id, None)
