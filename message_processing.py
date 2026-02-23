@@ -117,6 +117,8 @@ def process_message(sender_id, message, interface, is_sync_message=False):
                 handle_weather_command(sender_id, interface, location)
             else:
                 handle_weather_command(sender_id, interface)
+        elif message_lower.startswith("oa"):
+            handle_online_announcement_command(sender_id, interface)
         else:
             if state and state['command'] == 'MENU':
                 menu_name = state['menu']
