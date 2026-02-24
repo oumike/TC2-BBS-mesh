@@ -102,18 +102,16 @@ def send_startup_announcement(interface, channel_index, message_text):
     
     # Split into chunks if needed
     max_payload_size = 200
-    chunks = [message_text[i:i + max_payload_size] 
-             for i in range(0, len(message_text), max_payload_size)]
-    
-    for i, chunk in enumerate(chunks):
+
+    if len(message_text) > max_payload_size:
+        logging.error(f"Startup announcement is too long ({len(message_text)} chars). Max allowed is {max_payload_size}. Announcement not sent.")
+    else :
         interface.sendText(
-            text=chunk,
-            destinationId=BROADCAST_NUM,
-            channelIndex=channel_index,
-            wantAck=False,
-            wantResponse=False
-        )
-        logging.info(f"Sent startup announcement chunk {i+1}/{len(chunks)}")
+                text=message_text,
+                destinationId=BROADCAST_NUM,
+                channelIndex=channel_index,
+                wantAck=False,
+                wantResponse=False
+            )
+        logging.info(f"Sent startup announcement to channel {channel_index}")
         
-        if i < len(chunks) - 1:
-            time.sleep(2)

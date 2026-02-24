@@ -988,29 +988,25 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
                 
                 # Split into chunks if needed
                 max_payload_size = 200
-                chunks = [announcement_text[i:i + max_payload_size] 
-                         for i in range(0, len(announcement_text), max_payload_size)]
-                
-                logging.info(f"Sending announcement to channel {channel_idx} in {len(chunks)} chunk(s)")
-                
-                for i, chunk in enumerate(chunks):
-                    try:
-                        interface.sendText(
-                            text=chunk,
-                            destinationId=BROADCAST_NUM,
-                            channelIndex=channel_idx,
-                            wantAck=False,
-                            wantResponse=False
-                        )
-                        logging.info(f"Sent announcement chunk {i+1}/{len(chunks)}")
-                        
-                        if i < len(chunks) - 1:
-                            time.sleep(2)
-                    except Exception as e:
-                        logging.error(f"Error sending announcement chunk {i+1}: {e}")
-                        send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
-                        update_user_state(sender_id, None)
-                        return
+                if len(announcement_text) > max_payload_size:
+                    send_message(f"❌ Announcement too long ({len(announcement_text)} chars). Max allowed is {max_payload_size}.", sender_id, interface)
+                    update_user_state(sender_id, None)
+                    return
+                                
+                try:
+                    interface.sendText(
+                        text=announcement_text,
+                        destinationId=BROADCAST_NUM,
+                        channelIndex=channel_idx,
+                        wantAck=False,
+                        wantResponse=False
+                    )
+
+                except Exception as e:
+                    logging.error(f"Error sending announcement chunk {i+1}: {e}")
+                    send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
+                    update_user_state(sender_id, None)
+                    return
                 
                 send_message("✅ Announcement sent successfully!", sender_id, interface)
                 update_user_state(sender_id, None)
@@ -1046,40 +1042,34 @@ def handle_quick_announcement_command(sender_id, interface):
         
         # Prepend announcement prefix to the message
         announcement_text = f"📣 ANNOUNCEMENT 📣 {announcement_message}"
-        
+
         # Send the announcement
         from meshtastic import BROADCAST_NUM
         
-        logging.info(f"BROADCAST_NUM value: {BROADCAST_NUM}")
-        logging.info(f"Channel index: {announcement_channel} ({channel_name})")
-        logging.info(f"Message text: {announcement_text}")
-        
-        # Split into chunks if needed
         max_payload_size = 200
-        chunks = [announcement_text[i:i + max_payload_size] 
-                 for i in range(0, len(announcement_text), max_payload_size)]
-        
-        logging.info(f"Sending quick announcement to channel {channel_name} ({announcement_channel}) in {len(chunks)} chunk(s)")
-        
-        for i, chunk in enumerate(chunks):
-            try:
-                result = interface.sendText(
-                    text=chunk,
-                    destinationId=BROADCAST_NUM,
-                    channelIndex=announcement_channel,
-                    wantAck=False,
-                    wantResponse=False
-                )
-                logging.info(f"Sent quick announcement chunk {i+1}/{len(chunks)}, result ID: {result.id if result else 'None'}")
-                
-                if i < len(chunks) - 1:
-                    time.sleep(2)
-            except Exception as e:
-                logging.error(f"Error sending quick announcement chunk {i+1}: {e}")
-                send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
-                return
+        if len(announcement_text) > max_payload_size:
+            send_message(f"❌ Announcement too long ({len(announcement_text)} chars). Max allowed is {max_payload_size}.", sender_id, interface)
+            update_user_state(sender_id, None)
+            return
+
+        try:
+            d = interface.sendText(
+                text=announcement_text,
+                destinationId=BROADCAST_NUM,
+                channelIndex=announcement_channel,
+                wantAck=True,
+                wantResponse=False
+            )      
+
+            print(f"Sent quick announcement with send ID {d.id} to channel {announcement_channel} ({channel_name})")
+
+        except Exception as e:
+            logging.error(f"Error sending quick announcement: {e}")
+            send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
+            return
         
         # Confirm success
+        time.sleep(3)
         send_message("✅ Announcement sent successfully!", sender_id, interface)
         
     except Exception as e:
