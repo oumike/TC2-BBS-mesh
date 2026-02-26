@@ -13,7 +13,7 @@ from command_handlers import (
 )
 from db_operations import add_bulletin, add_mail, delete_bulletin, delete_mail, get_db_connection, add_channel
 from js8call_integration import handle_js8call_command, handle_js8call_steps, handle_group_message_selection
-from utils import get_user_state, get_node_short_name, get_node_id_from_num, send_message
+from utils import get_user_state, get_node_short_name, get_node_id_from_num, send_message, normalize_message, send_urgent_bulletin_notification
 
 main_menu_handlers = {
     "q": handle_quick_help_command,
@@ -64,10 +64,9 @@ def process_message(sender_id, message, interface, is_sync_message=False):
 
     bbs_nodes = interface.bbs_nodes
 
-    # Handle repeated characters for single character commands using a prefix
+    # Handle repeated characters for single character commands using normalize_message
     # But exclude quick commands like WX
-    if len(message_lower) == 2 and message_lower[1] == 'x' and message_lower != 'wx':
-        message_lower = message_lower[0]
+    message_lower = normalize_message(message_lower, exclude=['wx'])
 
     if is_sync_message:
         if message.startswith("BULLETIN|"):
@@ -76,8 +75,7 @@ def process_message(sender_id, message, interface, is_sync_message=False):
             add_bulletin(board, sender_short_name, subject, content, [], interface, unique_id=unique_id)
 
             if board.lower() == "urgent":
-                notification_message = f"💥NEW URGENT BULLETIN💥\nFrom: {sender_short_name}\nTitle: {subject}\nDM 'CB,,Urgent' to view"
-                send_message(notification_message, BROADCAST_NUM, interface)
+                send_urgent_bulletin_notification(sender_short_name, subject, interface)
         elif message.startswith("MAIL|"):
             parts = message.split("|")
             sender_id, sender_short_name, recipient_id, subject, content, unique_id = parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
