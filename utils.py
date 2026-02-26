@@ -54,37 +54,81 @@ def get_node_short_name(node_id, interface):
     return None
 
 
-def send_bulletin_to_bbs_nodes(board, sender_short_name, subject, content, unique_id, bbs_nodes, interface):
-    message = f"BULLETIN|{board}|{sender_short_name}|{subject}|{content}|{unique_id}"
+def get_sender_node_id(sender_id, interface):
+    """
+    Get the sender's node ID from their numeric ID.
+    This is a convenience wrapper around get_node_id_from_num.
+    
+    Args:
+        sender_id: The numeric sender ID
+        interface: The Meshtastic interface object
+    
+    Returns:
+        The node ID (hex string) or None
+    """
+    return get_node_id_from_num(sender_id, interface)
+
+
+def get_sender_short_name(sender_id, interface):
+    """
+    Get the sender's short name directly from their numeric ID.
+    
+    Args:
+        sender_id: The numeric sender ID
+        interface: The Meshtastic interface object
+    
+    Returns:
+        The short name or None
+    """
+    node_id = get_node_id_from_num(sender_id, interface)
+    if node_id:
+        return get_node_short_name(node_id, interface)
+    return None
+
+
+def broadcast_to_bbs_nodes(message, bbs_nodes, interface, log_message=None):
+    """
+    Broadcast a message to all BBS nodes.
+    
+    Args:
+        message: The message to broadcast
+        bbs_nodes: List of BBS node IDs to send to
+        interface: The Meshtastic interface object
+        log_message: Optional log message to output
+    """
+    if log_message:
+        logging.info(log_message)
+    
     for node_id in bbs_nodes:
         send_message(message, node_id, interface)
+
+
+def send_bulletin_to_bbs_nodes(board, sender_short_name, subject, content, unique_id, bbs_nodes, interface):
+    message = f"BULLETIN|{board}|{sender_short_name}|{subject}|{content}|{unique_id}"
+    broadcast_to_bbs_nodes(message, bbs_nodes, interface)
 
 
 def send_mail_to_bbs_nodes(sender_id, sender_short_name, recipient_id, subject, content, unique_id, bbs_nodes,
                            interface):
     message = f"MAIL|{sender_id}|{sender_short_name}|{recipient_id}|{subject}|{content}|{unique_id}"
-    logging.info(f"SERVER SYNC: Syncing new mail message {subject} sent from {sender_short_name} to other BBS systems.")
-    for node_id in bbs_nodes:
-        send_message(message, node_id, interface)
+    log_msg = f"SERVER SYNC: Syncing new mail message {subject} sent from {sender_short_name} to other BBS systems."
+    broadcast_to_bbs_nodes(message, bbs_nodes, interface, log_msg)
 
 
 def send_delete_bulletin_to_bbs_nodes(bulletin_id, bbs_nodes, interface):
     message = f"DELETE_BULLETIN|{bulletin_id}"
-    for node_id in bbs_nodes:
-        send_message(message, node_id, interface)
+    broadcast_to_bbs_nodes(message, bbs_nodes, interface)
 
 
 def send_delete_mail_to_bbs_nodes(unique_id, bbs_nodes, interface):
     message = f"DELETE_MAIL|{unique_id}"
-    logging.info(f"SERVER SYNC: Sending delete mail sync message with unique_id: {unique_id}")
-    for node_id in bbs_nodes:
-        send_message(message, node_id, interface)
+    log_msg = f"SERVER SYNC: Sending delete mail sync message with unique_id: {unique_id}"
+    broadcast_to_bbs_nodes(message, bbs_nodes, interface, log_msg)
 
 
 def send_channel_to_bbs_nodes(name, url, bbs_nodes, interface):
     message = f"CHANNEL|{name}|{url}"
-    for node_id in bbs_nodes:
-        send_message(message, node_id, interface)
+    broadcast_to_bbs_nodes(message, bbs_nodes, interface)
 
 
 def send_startup_announcement(interface, channel_index, message_text):

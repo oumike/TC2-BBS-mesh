@@ -1,6 +1,8 @@
 import configparser
+import datetime
 import logging
 import os
+import pprint
 import random
 import requests
 import sqlite3
@@ -17,7 +19,8 @@ from db_operations import (
 from utils import (
     get_node_id_from_num, get_node_info,
     get_node_short_name, send_message,
-    update_user_state, get_user_state
+    update_user_state, get_user_state,
+    get_sender_node_id, get_sender_short_name
 )
 
 # Read the configuration for menu options
@@ -72,7 +75,8 @@ def handle_help_command(sender_id, interface, menu_name=None):
             response = build_menu(utilities_menu_items, "🛠️Utilities Menu🛠️")
     else:
         update_user_state(sender_id, {'command': 'MAIN_MENU', 'step': 1})  # Reset to main menu state
-        mail = get_mail(get_node_id_from_num(sender_id, interface))
+        sender_node_id = get_sender_node_id(sender_id, interface)
+        mail = get_mail(sender_node_id)
         response = build_menu(main_menu_items, f"💾TC² BBS💾 (✉️:{len(mail)})")
     send_message(response, sender_id, interface)
 
@@ -119,6 +123,226 @@ def handle_fortune_command(sender_id, interface):
         send_message(decorated_fortune, sender_id, interface)
     except Exception as e:
         send_message(f"Error generating fortune: {e}", sender_id, interface)
+
+
+def display_node_details(sender_id, node_num, interface, short_name=''):
+    """
+    Display detailed information for a node given its numeric ID.
+    
+    Args:
+        sender_id: The ID of the user requesting the info
+        node_num: The numeric node ID (from node['num'])
+        interface: The Meshtastic interface object
+        short_name: Optional short name for error messages
+    
+    Returns:
+        True if node info was displayed, False otherwise
+    """
+    # Get full node info from interface
+    full_node_info = None
+    node_hex_id = 'Unknown'
+    for nid, ndata in interface.nodes.items():
+        if ndata['num'] == node_num:
+            full_node_info = ndata
+            node_hex_id = nid
+            break
+    
+    if full_node_info:
+        # Build comprehensive node information
+        info_lines = []
+        info_lines.append(f"📍 Node Information 📍")
+        info_lines.append(f"Short Name: {full_node_info['user'].get('shortName', 'N/A')}")
+        info_lines.append(f"Full Name: {get_node_name(node_hex_id, interface)}")
+        info_lines.append(f"Node ID: {node_hex_id}")
+        info_lines.append(f"Numeric ID: {node_num}")
+        
+        # Hardware information
+        hw_model = full_node_info['user'].get('hwModel', 'N/A')
+        if hw_model != 'N/A':
+            info_lines.append(f"Hardware: {hw_model}")
+        
+        # MAC address
+        macaddr = full_node_info['user'].get('macaddr')
+        if macaddr:
+            info_lines.append(f"MAC: {macaddr}")
+        
+        # Role
+        role = full_node_info['user'].get('role', 'N/A')
+        if role != 'N/A':
+            info_lines.append(f"Role: {role}")
+        
+        # Messaging status
+        is_unmessagable = full_node_info['user'].get('isUnmessagable', False)
+        if is_unmessagable:
+            info_lines.append(f"Status: Unmessagable")
+        
+        # Last heard timestamp
+        last_heard = full_node_info.get('lastHeard')
+        if last_heard:
+            last_heard_time = datetime.datetime.fromtimestamp(last_heard)
+            time_delta = datetime.datetime.now() - last_heard_time
+            days = time_delta.days
+            hours, remainder = divmod(time_delta.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            
+            time_ago = []
+            if days > 0:
+                time_ago.append(f"{days}d")
+            if hours > 0:
+                time_ago.append(f"{hours}h")
+            if minutes > 0:
+                time_ago.append(f"{minutes}m")
+            
+            time_ago_str = " ".join(time_ago) if time_ago else "just now"
+            info_lines.append(f"Last Heard: {last_heard_time.strftime('%Y-%m-%d %H:%M:%S')} ({time_ago_str} ago)")
+        
+        # Hops away
+        hops_away = full_node_info.get('hopsAway')
+        if hops_away is not None:
+            info_lines.append(f"Hops Away: {hops_away}")
+        
+        # SNR
+        snr = full_node_info.get('snr')
+        if snr is not None:
+            info_lines.append(f"SNR: {snr} dB")
+        
+        # Via MQTT
+        via_mqtt = full_node_info.get('viaMqtt', False)
+        if via_mqtt:
+            info_lines.append(f"Via MQTT: Yes")
+        
+        # Position information
+        position = full_node_info.get('position')
+        if position:
+            lat = position.get('latitude')
+            lon = position.get('longitude')
+            alt = position.get('altitude')
+            loc_source = position.get('locationSource', 'N/A')
+            
+            if lat and lon:
+                info_lines.append(f"Location: {lat:.6f}, {lon:.6f}")
+                if alt is not None:
+                    info_lines.append(f"Altitude: {alt}m")
+                info_lines.append(f"Loc Source: {loc_source}")
+                
+                # Position timestamp
+                pos_time = position.get('time')
+                if pos_time:
+                    pos_time_dt = datetime.datetime.fromtimestamp(pos_time)
+                    info_lines.append(f"Pos Time: {pos_time_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        response = "\n".join(info_lines)
+        send_message(response, sender_id, interface)
+        return True
+    else:
+        # Display whatever limited information we have
+        info_lines = []
+        info_lines.append(f"📍 Node Information 📍")
+        
+        if short_name:
+            info_lines.append(f"Short Name: {short_name}")
+        
+        # Get full name using get_node_name function
+        if node_hex_id != 'Unknown':
+            full_name = get_node_name(node_hex_id, interface)
+            info_lines.append(f"Full Name: {full_name}")
+        
+        if node_hex_id != 'Unknown':
+            info_lines.append(f"Node ID: {node_hex_id}")
+        
+        info_lines.append(f"Numeric ID: {node_num}")
+        
+        response = "\n".join(info_lines)
+        send_message(response, sender_id, interface)
+        return True
+
+
+def handle_node_info_command(sender_id, interface):
+    """Prompt user for a short name to look up node information."""
+    send_message("🔍 Node Info 🔍\nEnter the short name of the node you want to look up:", sender_id, interface)
+    update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 1})
+
+
+def handle_node_info_steps(sender_id, message, step, state, interface):
+    """Handle the node info lookup process."""
+    if step == 1:
+        short_name = message.strip()
+        
+        # Search for nodes with matching short name
+        nodes = get_node_info(interface, short_name.lower())
+        
+        if not nodes:
+            send_message(f"❌ I don't know who '{short_name}' is. No node found with that short name.", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        if len(nodes) == 1:
+            # Single match - display detailed information
+            node = nodes[0]
+            node_id = node['num']
+            display_node_details(sender_id, node_id, interface, short_name)
+            handle_help_command(sender_id, interface, 'utilities')
+        else:
+            # Multiple matches - ask user to choose
+            send_message(f"Multiple nodes found with short name '{short_name}':", sender_id, interface)
+            for i, node in enumerate(nodes):
+                send_message(f"[{i}] {node['longName']}", sender_id, interface)
+            send_message("Reply with the number of the node you want info on, or X to cancel:", sender_id, interface)
+            update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 2, 'nodes': nodes})
+    
+    elif step == 2:
+        # User selecting from multiple matches
+        if message.lower().strip() == 'x':
+            send_message("Node lookup cancelled.", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        try:
+            selected_index = int(message.strip())
+            nodes = state['nodes']
+            
+            if 0 <= selected_index < len(nodes):
+                node = nodes[selected_index]
+                node_id = node['num']
+                display_node_details(sender_id, node_id, interface)
+            else:
+                send_message("Invalid selection.", sender_id, interface)
+            
+            handle_help_command(sender_id, interface, 'utilities')
+        except ValueError:
+            send_message("Invalid input. Please enter a number or X to cancel.", sender_id, interface)
+
+
+def handle_quick_node_info_command(sender_id, message, interface):
+    """Handle quick node info command: N,,short_name"""
+    try:
+        parts = message.split(",,", 1)
+        if len(parts) != 2:
+            send_message("Node Info Quick Command format:\nN,,{short_name}", sender_id, interface)
+            return
+        
+        _, short_name = parts
+        short_name = short_name.strip()
+        
+        # Search for nodes with matching short name
+        nodes = get_node_info(interface, short_name.lower())
+        
+        if not nodes:
+            send_message(f"❌ I don't know who '{short_name}' is. No node found with that short name.", sender_id, interface)
+            return
+        
+        if len(nodes) > 1:
+            send_message(f"Multiple nodes found with short name '{short_name}'. Please use the full menu command for disambiguation.", sender_id, interface)
+            return
+        
+        # Single match - display detailed information
+        node = nodes[0]
+        node_id = node['num']
+        display_node_details(sender_id, node_id, interface, short_name)
+    
+    except Exception as e:
+        logging.error(f"Error processing quick node info command: {e}")
+        send_message("Error processing node info command.", sender_id, interface)
 
 
 def handle_weather_command(sender_id, interface, location=None):
@@ -284,7 +508,7 @@ def handle_bb_steps(sender_id, message, step, state, interface, bbs_nodes):
                 handle_bb_steps(sender_id, 'e', 1, state, interface, bbs_nodes)
         elif message.lower() == 'p':
             if board_name.lower() == 'urgent':
-                node_id = get_node_id_from_num(sender_id, interface)
+                node_id = get_sender_node_id(sender_id, interface)
                 allowed_nodes = interface.allowed_nodes
                 logging.info(f"Checking permissions for node_id: {node_id} with allowed_nodes: {allowed_nodes}")  # Debug statement
                 if allowed_nodes and node_id not in allowed_nodes:
@@ -311,8 +535,8 @@ def handle_bb_steps(sender_id, message, step, state, interface, bbs_nodes):
             board = state['board']
             subject = state['subject']
             content = state['content']
-            node_id = get_node_id_from_num(sender_id, interface)
-            node_info = interface.nodes.get(node_id)
+            sender_node_id = get_sender_node_id(sender_id, interface)
+            node_info = interface.nodes.get(sender_node_id)
             if node_info is None:
                 send_message("Error: Unable to retrieve your node information.", sender_id, interface)
                 update_user_state(sender_id, None)
@@ -335,7 +559,7 @@ def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
     if step == 1:
         choice = message.lower()
         if choice == 'r':
-            sender_node_id = get_node_id_from_num(sender_id, interface)
+            sender_node_id = get_sender_node_id(sender_id, interface)
             mail = get_mail(sender_node_id)
             if mail:
                 send_message(f"You have {len(mail)} mail messages. Select a message number to read:", sender_id, interface)
@@ -354,7 +578,7 @@ def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
     elif step == 2:
         mail_id = int(message)
         try:
-            sender_node_id = get_node_id_from_num(sender_id, interface)
+            sender_node_id = get_sender_node_id(sender_id, interface)
             sender, date, subject, content, unique_id = get_mail_content(mail_id, sender_node_id)
             send_message(f"Date: {date}\nFrom: {sender}\nSubject: {subject}\n{content}", sender_id, interface)
             send_message("What would you like to do with this message?\n[K]eep  [D]elete  [R]eply", sender_id, interface)
@@ -384,7 +608,7 @@ def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
     elif step == 4:
         if message.lower() == "d":
             unique_id = state['unique_id']
-            sender_node_id = get_node_id_from_num(sender_id, interface)
+            sender_node_id = get_sender_node_id(sender_id, interface)
             delete_mail(unique_id, sender_node_id, bbs_nodes, interface)
             send_message("The message has been deleted 🗑️", sender_id, interface)
             update_user_state(sender_id, None)
@@ -419,8 +643,9 @@ def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
             content = state['content']
             recipient_name = get_node_name(recipient_id, interface)
 
-            sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
-            unique_id = add_mail(get_node_id_from_num(sender_id, interface), sender_short_name, recipient_id, subject, content, bbs_nodes, interface)
+            sender_short_name = get_sender_short_name(sender_id, interface)
+            sender_node_id = get_sender_node_id(sender_id, interface)
+            unique_id = add_mail(sender_node_id, sender_short_name, recipient_id, subject, content, bbs_nodes, interface)
             send_message(f"Mail has been posted to the mailbox of {recipient_name}.\n(╯°□°)╯📨📬", sender_id, interface)
 
             notification_message = f"You have a new mail message from {sender_short_name}. Check your mailbox by responding to this message with CM."
@@ -581,9 +806,10 @@ def handle_send_mail_command(sender_id, message, interface, bbs_nodes):
 
         recipient_id = nodes[0]['num']
         recipient_name = get_node_name(recipient_id, interface)
-        sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
+        sender_short_name = get_sender_short_name(sender_id, interface)
+        sender_node_id = get_sender_node_id(sender_id, interface)
 
-        unique_id = add_mail(get_node_id_from_num(sender_id, interface), sender_short_name, recipient_id, subject,
+        unique_id = add_mail(sender_node_id, sender_short_name, recipient_id, subject,
                              content, bbs_nodes, interface)
         send_message(f"Mail has been sent to {recipient_name}.", sender_id, interface)
 
@@ -597,7 +823,7 @@ def handle_send_mail_command(sender_id, message, interface, bbs_nodes):
 
 def handle_check_mail_command(sender_id, interface):
     try:
-        sender_node_id = get_node_id_from_num(sender_id, interface)
+        sender_node_id = get_sender_node_id(sender_id, interface)
         mail = get_mail(sender_node_id)
         if not mail:
             send_message("You have no new messages.", sender_id, interface)
@@ -626,7 +852,7 @@ def handle_read_mail_command(sender_id, message, state, interface):
             return
 
         mail_id = mail[message_number][0]
-        sender_node_id = get_node_id_from_num(sender_id, interface)
+        sender_node_id = get_sender_node_id(sender_id, interface)
         sender, date, subject, content, unique_id = get_mail_content(mail_id, sender_node_id)
         response = f"Date: {date}\nFrom: {sender}\nSubject: {subject}\n\n{content}"
         send_message(response, sender_id, interface)
@@ -648,7 +874,7 @@ def handle_delete_mail_confirmation(sender_id, message, state, interface, bbs_no
 
         if choice == 'd':
             unique_id = state['unique_id']
-            sender_node_id = get_node_id_from_num(sender_id, interface)
+            sender_node_id = get_sender_node_id(sender_id, interface)
             delete_mail(unique_id, sender_node_id, bbs_nodes, interface)
             send_message("The message has been deleted 🗑️", sender_id, interface)
             update_user_state(sender_id, None)
@@ -674,7 +900,7 @@ def handle_post_bulletin_command(sender_id, message, interface, bbs_nodes):
             return
 
         _, board_name, subject, content = parts
-        sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
+        sender_short_name = get_sender_short_name(sender_id, interface)
 
         unique_id = add_bulletin(board_name, sender_short_name, subject, content, bbs_nodes, interface)
         send_message(f"Your bulletin '{subject}' has been posted to {board_name}.", sender_id, interface)
@@ -820,7 +1046,7 @@ def handle_quick_help_command(sender_id, interface):
     response_part_one = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\n"
                 "SM,, - Send Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins")
     response_part_two = (   
-                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement")
+                "N,, - Node Info\nTT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement")
     send_message(response_part_one, sender_id, interface)
     time.sleep(3)
     send_message(response_part_two, sender_id, interface)
@@ -858,6 +1084,14 @@ def get_channel_list(interface):
 
 def handle_announcement_command(sender_id, interface):
     """Handle the announcement command - shows available channels."""
+    # Check if user has permission to make announcements
+    node_id = get_sender_node_id(sender_id, interface)
+    allowed_nodes = interface.allowed_nodes
+    if allowed_nodes and node_id not in allowed_nodes:
+        send_message("❌ You don't have permission to make announcements.", sender_id, interface)
+        handle_help_command(sender_id, interface, 'utilities')
+        return
+    
     try:
         channels = get_channel_list(interface)
         
@@ -1025,6 +1259,13 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
 
 def handle_quick_announcement_command(sender_id, interface):
     """Send the configured quick announcement message to the configured channel."""
+    # Check if user has permission to make announcements
+    node_id = get_sender_node_id(sender_id, interface)
+    allowed_nodes = interface.allowed_nodes
+    if allowed_nodes and node_id not in allowed_nodes:
+        send_message("❌ You don't have permission to make announcements.", sender_id, interface)
+        return
+    
     try:
         
         # Get quick announcement configuration from [misc] section

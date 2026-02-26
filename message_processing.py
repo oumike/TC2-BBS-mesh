@@ -9,7 +9,8 @@ from command_handlers import (
     handle_read_mail_command, handle_check_mail_command, handle_delete_mail_confirmation, handle_post_bulletin_command,
     handle_check_bulletin_command, handle_read_bulletin_command, handle_read_channel_command,
     handle_post_channel_command, handle_list_channels_command, handle_quick_help_command, handle_mqtt_topics_command,
-    handle_announcement_command, handle_announcement_steps, handle_quick_announcement_command
+    handle_announcement_command, handle_announcement_steps, handle_quick_announcement_command,
+    handle_node_info_command, handle_node_info_steps, handle_quick_node_info_command
 )
 from db_operations import add_bulletin, add_mail, delete_bulletin, delete_mail, get_db_connection, add_channel
 from js8call_integration import handle_js8call_command, handle_js8call_steps, handle_group_message_selection
@@ -38,6 +39,7 @@ utilities_menu_handlers = {
     "t": handle_mqtt_topics_command,
     "r": handle_weather_command,
     "a": handle_announcement_command,
+    "n": handle_node_info_command,
     "x": handle_help_command
 }
 
@@ -103,6 +105,8 @@ def process_message(sender_id, message, interface, is_sync_message=False):
             handle_post_bulletin_command(sender_id, message_strip, interface, bbs_nodes)
         elif message_lower.startswith("cb,,"):
             handle_check_bulletin_command(sender_id, message_strip, interface)
+        elif message_lower.startswith("n,,"):
+            handle_quick_node_info_command(sender_id, message_strip, interface)
         elif message_lower.startswith("chp,,"):
             handle_post_channel_command(sender_id, message_strip, interface)
         elif message_lower.startswith("chl"):
@@ -188,6 +192,8 @@ def process_message(sender_id, message, interface, is_sync_message=False):
                     handle_group_message_selection(sender_id, message, step, state, interface)
                 elif command == 'ANNOUNCEMENT':
                     handle_announcement_steps(sender_id, message, step, state, interface)
+                elif command == 'NODE_INFO':
+                    handle_node_info_steps(sender_id, message, step, state, interface)
                 else:
                     handle_help_command(sender_id, interface)
             else:
