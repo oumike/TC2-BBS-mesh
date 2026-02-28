@@ -63,6 +63,8 @@ def build_menu(items, menu_name):
             menu_str += "Weathe[R]\n"
         elif item.strip() == 'A':
             menu_str += "[A]nnouncement\n"
+        elif item.strip() == 'N':
+            menu_str += "[N]ode Info\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -808,7 +810,7 @@ def handle_quick_help_command(sender_id, interface):
     response_part_one = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\n"
                 "SM,, - Send Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins")
     response_part_two = (   
-                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement")
+                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement\nN,, - Node Info")
     send_message(response_part_one, sender_id, interface)
     time.sleep(3)
     send_message(response_part_two, sender_id, interface)
@@ -1033,3 +1035,157 @@ def handle_quick_announcement_command(sender_id, interface):
         send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
 
     update_user_state(sender_id, None)
+
+
+def handle_quick_node_info_command(sender_id, message, interface):
+    """Handle quick node info command in format: N,,shortname"""
+    try:
+        parts = message.split(",,", 1)
+        if len(parts) != 2 or not parts[1].strip():
+            send_message("Node Info Quick Command format:\nN,,{short_name}", sender_id, interface)
+            return
+        
+        _, short_name = parts
+        short_name = short_name.strip().lower()
+        nodes = get_node_info(interface, short_name)
+        
+        if not nodes:
+            send_message(f"Node with short name '{parts[1].strip()}' not found.", sender_id, interface)
+            return
+        
+        if len(nodes) > 1:
+            send_message(f"Multiple nodes found with short name '{parts[1].strip()}':", sender_id, interface)
+            for node in nodes:
+                # For quick command, just display all matching nodes
+                display_node_info(sender_id, node, interface)
+                time.sleep(3)
+            return
+        
+        # Single node found - display info
+        display_node_info(sender_id, nodes[0], interface)
+        
+    except Exception as e:
+        logging.error(f"Error processing quick node info command: {e}")
+        send_message("Error processing node info command.", sender_id, interface)
+
+
+def handle_node_info_command(sender_id, interface):
+    """Handle the node info command - prompts user for a node short name."""
+    send_message("🔍NODE INFO🔍\nEnter the short name of the node to look up:", sender_id, interface)
+    update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 1})
+
+
+def handle_node_info_steps(sender_id, message, step, interface):
+    """Handle the node info lookup process."""
+    message_strip = message.strip()
+    
+    if step == 1:
+        short_name = message_strip.lower()
+        nodes = get_node_info(interface, short_name)
+        
+        if not nodes:
+            send_message(f"Node with short name '{message_strip}' not found.", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        if len(nodes) > 1:
+            send_message(f"Multiple nodes found with short name '{message_strip}':", sender_id, interface)
+            for idx, node in enumerate(nodes):
+                send_message(f"[{idx}] {node['longName']}", sender_id, interface)
+            send_message("Reply with the number to view details or X to cancel.", sender_id, interface)
+            update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 2, 'nodes': nodes})
+            return
+        
+        # Single node found - display info
+        display_node_info(sender_id, nodes[0], interface)
+        handle_help_command(sender_id, interface, 'utilities')
+    
+    elif step == 2:
+        if message_strip.lower() == 'x':
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        try:
+            selection = int(message_strip)
+            state = get_user_state(sender_id)
+            nodes = state.get('nodes', [])
+            
+            if 0 <= selection < len(nodes):
+                display_node_info(sender_id, nodes[selection], interface)
+            else:
+                send_message("Invalid selection.", sender_id, interface)
+            
+            handle_help_command(sender_id, interface, 'utilities')
+        except ValueError:
+            send_message("Invalid input. Please enter a number or X to cancel.", sender_id, interface)
+
+
+def display_node_info(sender_id, node, interface):
+    """Display detailed information about a node."""
+    node_id = node['num']
+    short_name = node['shortName']
+    long_name = node['longName']
+    
+    # Get full node info from interface
+    full_node_info = interface.nodes.get(get_node_id_from_num(node_id, interface))
+    
+    info_lines = []
+    info_lines.append(f"📡 Node Info: {short_name} 📡")
+    info_lines.append(f"Long Name: {long_name}")
+    info_lines.append(f"Short Name: {short_name}")
+    
+    if full_node_info:
+        # Hardware model
+        hw_model = full_node_info.get('user', {}).get('hwModel', 'Unknown')
+        if hw_model != 'Unknown':
+            info_lines.append(f"Hardware: {hw_model}")
+        
+        # Role
+        role = full_node_info.get('user', {}).get('role', 'Unknown')
+        if role != 'Unknown':
+            info_lines.append(f"Role: {role}")
+        
+        # Device metrics
+        metrics = full_node_info.get('deviceMetrics', {})
+        if metrics:
+            battery_level = metrics.get('batteryLevel')
+            if battery_level is not None:
+                info_lines.append(f"Battery: {battery_level}%")
+            
+            voltage = metrics.get('voltage')
+            if voltage is not None:
+                info_lines.append(f"Voltage: {voltage:.2f}V")
+            
+            channel_util = metrics.get('channelUtilization')
+            if channel_util is not None:
+                info_lines.append(f"Ch. Util: {channel_util:.1f}%")
+            
+            air_util_tx = metrics.get('airUtilTx')
+            if air_util_tx is not None:
+                info_lines.append(f"Air Util TX: {air_util_tx:.1f}%")
+        
+        # Last heard
+        last_heard = full_node_info.get('lastHeard')
+        if last_heard:
+            current_time = int(time.time())
+            time_diff = current_time - last_heard
+            
+            if time_diff < 60:
+                time_str = f"{time_diff} sec ago"
+            elif time_diff < 3600:
+                time_str = f"{time_diff // 60} min ago"
+            elif time_diff < 86400:
+                time_str = f"{time_diff // 3600} hr ago"
+            else:
+                time_str = f"{time_diff // 86400} days ago"
+            
+            info_lines.append(f"Last Heard: {time_str}")
+        
+        # SNR
+        snr = full_node_info.get('snr')
+        if snr is not None:
+            info_lines.append(f"SNR: {snr:.1f} dB")
+    
+    # Send the info
+    response = "\n".join(info_lines)
+    send_message(response, sender_id, interface)
