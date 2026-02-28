@@ -12,7 +12,7 @@ from command_handlers import (
     handle_announcement_command, handle_announcement_steps, handle_quick_announcement_command,
     handle_node_info_command, handle_node_info_steps, handle_quick_node_info_command
 )
-from db_operations import add_bulletin, add_mail, delete_bulletin, delete_mail, get_db_connection, add_channel
+from db_operations import add_bulletin, add_mail, delete_bulletin, delete_mail, get_db_connection, add_channel, upsert_node_info
 from js8call_integration import handle_js8call_command, handle_js8call_steps, handle_group_message_selection
 from utils import get_user_state, get_node_short_name, get_node_id_from_num, send_message, normalize_message, send_urgent_bulletin_notification
 
@@ -200,6 +200,15 @@ def process_message(sender_id, message, interface, is_sync_message=False):
 
 def on_receive(packet, interface):
     try:
+        # Update node info in database whenever we receive a packet
+        if 'fromId' in packet:
+            node_id = packet['fromId']
+            if node_id in interface.nodes:
+                try:
+                    upsert_node_info(node_id, interface.nodes[node_id])
+                except Exception as e:
+                    logging.error(f"Error updating node info for {node_id}: {e}")
+        
         if 'decoded' in packet and packet['decoded']['portnum'] == 'TEXT_MESSAGE_APP':
             message_bytes = packet['decoded']['payload']
             message_string = message_bytes.decode('utf-8')

@@ -13,10 +13,11 @@ other BBS servers listed in the config.ini file.
 """
 
 import logging
+import threading
 import time
 
 from config_init import initialize_config, get_interface, init_cli_parser, merge_config
-from db_operations import initialize_database
+from db_operations import initialize_database, initialize_nodes_database, sync_all_nodes_to_db
 from js8call_integration import JS8CallClient
 from message_processing import on_receive
 from pubsub import pub
@@ -50,6 +51,33 @@ Meshtastic Version
 """
     print(banner)
 
+
+def node_sync_worker(interface, sync_interval=300):
+    """
+    Background worker to periodically sync all nodes to the database.
+    
+    Args:
+        interface: The Meshtastic interface object
+        sync_interval: Interval in seconds between syncs (default: 300 = 5 minutes)
+    """
+    logging.info(f"Node sync worker started. Will sync every {sync_interval} seconds.")
+    
+    # Initial sync after a short delay to let interface populate
+    time.sleep(30)
+    try:
+        sync_all_nodes_to_db(interface)
+    except Exception as e:
+        logging.error(f"Error in initial node sync: {e}")
+    
+    # Periodic sync
+    while True:
+        try:
+            time.sleep(sync_interval)
+            sync_all_nodes_to_db(interface)
+        except Exception as e:
+            logging.error(f"Error in periodic node sync: {e}")
+
+
 def main():
     display_banner()
     args = init_cli_parser()
@@ -67,6 +95,12 @@ def main():
     logging.info(f"TC²-BBS is running on {system_config['interface_type']} interface...")
 
     initialize_database()
+    initialize_nodes_database()
+
+    # Start background node sync worker
+    sync_thread = threading.Thread(target=node_sync_worker, args=(interface,), daemon=True)
+    sync_thread.start()
+    logging.info("Node sync background worker started")
 
     def receive_packet(packet, interface):
         on_receive(packet, interface)

@@ -12,7 +12,8 @@ from db_operations import (
     add_bulletin, add_mail, delete_mail,
     get_bulletin_content, get_bulletins,
     get_mail, get_mail_content,
-    add_channel, get_channels, get_sender_id_by_mail_id
+    add_channel, get_channels, get_sender_id_by_mail_id,
+    get_node_from_db, get_node_by_shortname_from_db
 )
 from utils import (
     get_node_id_from_num, get_node_info,
@@ -1037,6 +1038,50 @@ def handle_quick_announcement_command(sender_id, interface):
     update_user_state(sender_id, None)
 
 
+def convert_db_node_to_interface_format(db_node):
+    """
+    Convert a database node record to interface node format.
+    
+    Args:
+        db_node: Dictionary from database query
+    
+    Returns:
+        Dictionary in interface node format
+    """
+    return {
+        'num': db_node['num'],
+        'shortName': db_node['short_name'],
+        'longName': db_node['long_name']
+    }
+
+
+def find_nodes_by_shortname(short_name, interface):
+    """
+    Search for nodes by short name in both interface and database.
+    
+    Args:
+        short_name: Node short name (case-insensitive)
+        interface: Meshtastic interface object
+    
+    Returns:
+        Tuple of (nodes_list, from_database_bool)
+    """
+    # First try interface
+    nodes = get_node_info(interface, short_name.lower())
+    if nodes:
+        return nodes, False
+    
+    # If not in interface, try database
+    logging.info(f"Node '{short_name}' not in interface, checking database...")
+    db_nodes = get_node_by_shortname_from_db(short_name.lower())
+    if db_nodes:
+        # Convert to interface format
+        converted_nodes = [convert_db_node_to_interface_format(db_node) for db_node in db_nodes]
+        return converted_nodes, True
+    
+    return [], False
+
+
 def handle_quick_node_info_command(sender_id, message, interface):
     """Handle quick node info command in format: N,,shortname"""
     try:
@@ -1046,17 +1091,16 @@ def handle_quick_node_info_command(sender_id, message, interface):
             return
         
         _, short_name = parts
-        short_name = short_name.strip().lower()
-        nodes = get_node_info(interface, short_name)
+        short_name = short_name.strip()
+        nodes, from_db = find_nodes_by_shortname(short_name, interface)
         
         if not nodes:
-            send_message(f"Node with short name '{parts[1].strip()}' not found.", sender_id, interface)
+            send_message(f"Node with short name '{short_name}' not found.", sender_id, interface)
             return
         
         if len(nodes) > 1:
-            send_message(f"Multiple nodes found with short name '{parts[1].strip()}':", sender_id, interface)
+            send_message(f"Multiple nodes found with short name '{short_name}':", sender_id, interface)
             for node in nodes:
-                # For quick command, just display all matching nodes
                 display_node_info(sender_id, node, interface)
                 time.sleep(3)
             return
@@ -1080,16 +1124,16 @@ def handle_node_info_steps(sender_id, message, step, interface):
     message_strip = message.strip()
     
     if step == 1:
-        short_name = message_strip.lower()
-        nodes = get_node_info(interface, short_name)
+        short_name = message_strip
+        nodes, from_db = find_nodes_by_shortname(short_name, interface)
         
         if not nodes:
-            send_message(f"Node with short name '{message_strip}' not found.", sender_id, interface)
+            send_message(f"Node with short name '{short_name}' not found.", sender_id, interface)
             handle_help_command(sender_id, interface, 'utilities')
             return
         
         if len(nodes) > 1:
-            send_message(f"Multiple nodes found with short name '{message_strip}':", sender_id, interface)
+            send_message(f"Multiple nodes found with short name '{short_name}':", sender_id, interface)
             for idx, node in enumerate(nodes):
                 send_message(f"[{idx}] {node['longName']}", sender_id, interface)
             send_message("Reply with the number to view details or X to cancel.", sender_id, interface)
@@ -1120,71 +1164,175 @@ def handle_node_info_steps(sender_id, message, step, interface):
             send_message("Invalid input. Please enter a number or X to cancel.", sender_id, interface)
 
 
+def get_node_db_info(node_id_str, short_name):
+    """
+    Get node information from database, trying by node_id first, then by short_name.
+    
+    Args:
+        node_id_str: Node ID string (e.g., '!0137af2d')
+        short_name: Node short name
+    
+    Returns:
+        Tuple of (db_node_info dict or None, effective_node_id_str)
+    """
+    db_node_info = None
+    effective_node_id_str = node_id_str
+    
+    # Try by node_id first
+    if node_id_str:
+        try:
+            db_node_info = get_node_from_db(node_id_str)
+            logging.info(f"Database lookup for {node_id_str}: {'Found' if db_node_info else 'Not found'}")
+            if db_node_info:
+                logging.debug(f"DB node info: {db_node_info}")
+        except Exception as e:
+            logging.error(f"Error retrieving node from database: {e}")
+    else:
+        logging.warning(f"Could not get node_id_str for node")
+    
+    # If not found by node_id, try by short_name
+    if not db_node_info:
+        try:
+            db_nodes = get_node_by_shortname_from_db(short_name)
+            if db_nodes:
+                db_node_info = db_nodes[0]  # Take the first match
+                effective_node_id_str = db_node_info.get('node_id')
+                logging.info(f"Found node in database by short name: {effective_node_id_str}")
+        except Exception as e:
+            logging.error(f"Error searching database by short name: {e}")
+    
+    return db_node_info, effective_node_id_str
+
+
 def display_node_info(sender_id, node, interface):
     """Display detailed information about a node."""
+    from datetime import datetime
+    
     node_id = node['num']
     short_name = node['shortName']
     long_name = node['longName']
     
     # Get full node info from interface
-    full_node_info = interface.nodes.get(get_node_id_from_num(node_id, interface))
+    node_id_str = get_node_id_from_num(node_id, interface)
+    full_node_info = interface.nodes.get(node_id_str)
+    
+    # Get node info from database (tries by node_id, then by short_name)
+    db_node_info, node_id_str = get_node_db_info(node_id_str, short_name)
     
     info_lines = []
     info_lines.append(f"📡 Node Info: {short_name} 📡")
     info_lines.append(f"Long Name: {long_name}")
     info_lines.append(f"Short Name: {short_name}")
+    if node_id_str:
+        info_lines.append(f"Node ID: {node_id_str}")
     
+    # Collect data from interface (current) and database (historical/fallback)
+    hw_model = None
+    role = None
+    battery_level = None
+    voltage = None
+    channel_util = None
+    air_util_tx = None
+    temp = None
+    lat = None
+    lon = None
+    last_heard = None
+    snr = None
+    
+    # Get data from interface if available
     if full_node_info:
-        # Hardware model
-        hw_model = full_node_info.get('user', {}).get('hwModel', 'Unknown')
-        if hw_model != 'Unknown':
-            info_lines.append(f"Hardware: {hw_model}")
+        hw_model = full_node_info.get('user', {}).get('hwModel')
+        role = full_node_info.get('user', {}).get('role')
         
-        # Role
-        role = full_node_info.get('user', {}).get('role', 'Unknown')
-        if role != 'Unknown':
-            info_lines.append(f"Role: {role}")
-        
-        # Device metrics
         metrics = full_node_info.get('deviceMetrics', {})
         if metrics:
             battery_level = metrics.get('batteryLevel')
-            if battery_level is not None:
-                info_lines.append(f"Battery: {battery_level}%")
-            
             voltage = metrics.get('voltage')
-            if voltage is not None:
-                info_lines.append(f"Voltage: {voltage:.2f}V")
-            
             channel_util = metrics.get('channelUtilization')
-            if channel_util is not None:
-                info_lines.append(f"Ch. Util: {channel_util:.1f}%")
-            
             air_util_tx = metrics.get('airUtilTx')
-            if air_util_tx is not None:
-                info_lines.append(f"Air Util TX: {air_util_tx:.1f}%")
+            temp = metrics.get('temperature')
         
-        # Last heard
+        position = full_node_info.get('position', {})
+        lat = position.get('latitude')
+        lon = position.get('longitude')
+        
         last_heard = full_node_info.get('lastHeard')
-        if last_heard:
-            current_time = int(time.time())
-            time_diff = current_time - last_heard
-            
-            if time_diff < 60:
-                time_str = f"{time_diff} sec ago"
-            elif time_diff < 3600:
-                time_str = f"{time_diff // 60} min ago"
-            elif time_diff < 86400:
-                time_str = f"{time_diff // 3600} hr ago"
-            else:
-                time_str = f"{time_diff // 86400} days ago"
-            
-            info_lines.append(f"Last Heard: {time_str}")
-        
-        # SNR
         snr = full_node_info.get('snr')
-        if snr is not None:
-            info_lines.append(f"SNR: {snr:.1f} dB")
+    
+    # Use database as fallback or supplement
+    if db_node_info:
+        if hw_model is None:
+            hw_model = db_node_info.get('hw_model')
+        if role is None:
+            role = db_node_info.get('role')
+        if battery_level is None:
+            battery_level = db_node_info.get('battery_level')
+        if voltage is None:
+            voltage = db_node_info.get('voltage')
+        if channel_util is None:
+            channel_util = db_node_info.get('channel_utilization')
+        if air_util_tx is None:
+            air_util_tx = db_node_info.get('air_util_tx')
+        if temp is None:
+            temp = db_node_info.get('temperature')
+        if lat is None:
+            lat = db_node_info.get('latitude')
+        if lon is None:
+            lon = db_node_info.get('longitude')
+        if last_heard is None:
+            last_heard = db_node_info.get('last_heard')
+        if snr is None:
+            snr = db_node_info.get('snr')
+    
+    # Display collected data
+    if hw_model and hw_model != 'Unknown':
+        info_lines.append(f"Hardware: {hw_model}")
+    
+    if role and role != 'Unknown':
+        info_lines.append(f"Role: {role}")
+    
+    if battery_level is not None:
+        info_lines.append(f"Battery: {battery_level}%")
+    
+    if voltage is not None:
+        info_lines.append(f"Voltage: {voltage:.2f}V")
+    
+    if channel_util is not None:
+        info_lines.append(f"Ch. Util: {channel_util:.1f}%")
+    
+    if air_util_tx is not None:
+        info_lines.append(f"Air Util TX: {air_util_tx:.1f}%")
+    
+    if temp is not None:
+        info_lines.append(f"Temp: {temp:.1f}°C")
+    
+    if last_heard:
+        current_time = int(time.time())
+        time_diff = current_time - last_heard
+        
+        if time_diff < 60:
+            time_str = f"{time_diff} sec ago"
+        elif time_diff < 3600:
+            time_str = f"{time_diff // 60} min ago"
+        elif time_diff < 86400:
+            time_str = f"{time_diff // 3600} hr ago"
+        else:
+            time_str = f"{time_diff // 86400} days ago"
+        
+        info_lines.append(f"Last Heard: {time_str}")
+    
+    if snr is not None:
+        info_lines.append(f"SNR: {snr:.1f} dB")
+    
+    if lat is not None and lon is not None:
+        info_lines.append(f"Location: {lat:.4f}, {lon:.4f}")
+    
+    # Additional info from database only
+    if db_node_info:
+        # First seen timestamp
+        if db_node_info.get('first_seen'):
+            first_seen_dt = datetime.fromtimestamp(db_node_info['first_seen'])
+            info_lines.append(f"First Seen: {first_seen_dt.strftime('%m/%d %H:%M')}")
     
     # Send the info
     response = "\n".join(info_lines)
