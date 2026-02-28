@@ -17,7 +17,9 @@ from db_operations import (
 from utils import (
     get_node_id_from_num, get_node_info,
     get_node_short_name, send_message,
-    update_user_state, get_user_state
+    update_user_state, get_user_state,
+    normalize_message, get_sender_short_name,
+    validate_item_selection, send_announcement
 )
 
 # Read the configuration for menu options
@@ -61,6 +63,8 @@ def build_menu(items, menu_name):
             menu_str += "Weathe[R]\n"
         elif item.strip() == 'A':
             menu_str += "[A]nnouncement\n"
+        elif item.strip() == 'N':
+            menu_str += "[N]ode Info\n"
     return menu_str
 
 def handle_help_command(sender_id, interface, menu_name=None):
@@ -210,9 +214,7 @@ def handle_weather_command(sender_id, interface, location=None):
 
 
 def handle_stats_steps(sender_id, message, step, interface):
-    message = message.lower().strip()
-    if len(message) == 2 and message[1] == 'x':
-        message = message[0]
+    message = normalize_message(message)
 
     if step == 1:
         choice = message
@@ -317,7 +319,7 @@ def handle_bb_steps(sender_id, message, step, state, interface, bbs_nodes):
                 send_message("Error: Unable to retrieve your node information.", sender_id, interface)
                 update_user_state(sender_id, None)
                 return
-            sender_short_name = node_info['user'].get('shortName', f"Node {sender_id}")
+            sender_short_name = get_sender_short_name(sender_id, interface)
             unique_id = add_bulletin(board, sender_short_name, subject, content, bbs_nodes, interface)
             send_message(f"Your bulletin '{subject}' has been posted to {board}.\n(╯°□°)╯📄📌[{board}]", sender_id, interface)
             handle_bb_steps(sender_id, 'e', 1, state, interface, bbs_nodes)
@@ -329,8 +331,7 @@ def handle_bb_steps(sender_id, message, step, state, interface, bbs_nodes):
 
 def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
     message = message.strip()
-    if len(message) == 2 and message[1] == 'x':
-        message = message[0]
+    message = normalize_message(message)
 
     if step == 1:
         choice = message.lower()
@@ -419,7 +420,7 @@ def handle_mail_steps(sender_id, message, step, state, interface, bbs_nodes):
             content = state['content']
             recipient_name = get_node_name(recipient_id, interface)
 
-            sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
+            sender_short_name = get_sender_short_name(sender_id, interface)
             unique_id = add_mail(get_node_id_from_num(sender_id, interface), sender_short_name, recipient_id, subject, content, bbs_nodes, interface)
             send_message(f"Mail has been posted to the mailbox of {recipient_name}.\n(╯°□°)╯📨📬", sender_id, interface)
 
@@ -484,7 +485,6 @@ def handle_mqtt_topics_command(sender_id, interface):
 
     # Send header first
     send_message("🏆 Top 15 Topics 🏆", sender_id, interface)
-    time.sleep(3)  # Delay before sending first chunk
     
     # Build all topic lines
     topic_lines = []
@@ -519,8 +519,7 @@ def handle_channel_directory_command(sender_id, interface):
 
 def handle_channel_directory_steps(sender_id, message, step, state, interface):
     message = message.strip()
-    if len(message) == 2 and message[1] == 'x':
-        message = message[0]
+    message = normalize_message(message)
 
     if step == 1:
         choice = message
@@ -581,7 +580,7 @@ def handle_send_mail_command(sender_id, message, interface, bbs_nodes):
 
         recipient_id = nodes[0]['num']
         recipient_name = get_node_name(recipient_id, interface)
-        sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
+        sender_short_name = get_sender_short_name(sender_id, interface)
 
         unique_id = add_mail(get_node_id_from_num(sender_id, interface), sender_short_name, recipient_id, subject,
                              content, bbs_nodes, interface)
@@ -619,17 +618,18 @@ def handle_check_mail_command(sender_id, interface):
 def handle_read_mail_command(sender_id, message, state, interface):
     try:
         mail = state.get('mail', [])
-        message_number = int(message) - 1
-
-        if message_number < 0 or message_number >= len(mail):
-            send_message("Invalid message number. Please try again.", sender_id, interface)
+        success, result = validate_item_selection(message, mail, "message")
+        
+        if not success:
+            send_message(result, sender_id, interface)
             return
 
-        mail_id = mail[message_number][0]
+        mail_id = mail[result][0]
         sender_node_id = get_node_id_from_num(sender_id, interface)
         sender, date, subject, content, unique_id = get_mail_content(mail_id, sender_node_id)
         response = f"Date: {date}\nFrom: {sender}\nSubject: {subject}\n\n{content}"
         send_message(response, sender_id, interface)
+        time.sleep(3)
         send_message("What would you like to do with this message?\n[K]eep  [D]elete  [R]eply", sender_id, interface)
         update_user_state(sender_id, {'command': 'CHECK_MAIL', 'step': 2, 'mail_id': mail_id, 'unique_id': unique_id, 'sender': sender, 'subject': subject, 'content': content})
 
@@ -642,9 +642,7 @@ def handle_read_mail_command(sender_id, message, state, interface):
 
 def handle_delete_mail_confirmation(sender_id, message, state, interface, bbs_nodes):
     try:
-        choice = message.lower().strip()
-        if len(choice) == 2 and choice[1] == 'x':
-            choice = choice[0]
+        choice = normalize_message(message.lower().strip())
 
         if choice == 'd':
             unique_id = state['unique_id']
@@ -674,7 +672,7 @@ def handle_post_bulletin_command(sender_id, message, interface, bbs_nodes):
             return
 
         _, board_name, subject, content = parts
-        sender_short_name = get_node_short_name(get_node_id_from_num(sender_id, interface), interface)
+        sender_short_name = get_sender_short_name(sender_id, interface)
 
         unique_id = add_bulletin(board_name, sender_short_name, subject, content, bbs_nodes, interface)
         send_message(f"Your bulletin '{subject}' has been posted to {board_name}.", sender_id, interface)
@@ -717,13 +715,13 @@ def handle_check_bulletin_command(sender_id, message, interface):
 def handle_read_bulletin_command(sender_id, message, state, interface):
     try:
         bulletins = state.get('bulletins', [])
-        message_number = int(message) - 1
-
-        if message_number < 0 or message_number >= len(bulletins):
-            send_message("Invalid bulletin number. Please try again.", sender_id, interface)
+        success, result = validate_item_selection(message, bulletins, "bulletin")
+        
+        if not success:
+            send_message(result, sender_id, interface)
             return
 
-        bulletin_id = bulletins[message_number][0]
+        bulletin_id = bulletins[result][0]
         sender, date, subject, content, unique_id = get_bulletin_content(bulletin_id)
         response = f"Date: {date}\nFrom: {sender}\nSubject: {subject}\n\n{content}"
         send_message(response, sender_id, interface)
@@ -755,6 +753,17 @@ def handle_post_channel_command(sender_id, message, interface):
 
 
 def handle_check_channel_command(sender_id, interface):
+    """Display available channels for user to select and view."""
+    _handle_channel_list_command(sender_id, interface, 'CHECK_CHANNEL')
+
+
+def handle_list_channels_command(sender_id, interface):
+    """Display available channels for user to select and view."""
+    _handle_channel_list_command(sender_id, interface, 'LIST_CHANNELS')
+
+
+def _handle_channel_list_command(sender_id, interface, command_name):
+    """Helper function to handle channel listing logic."""
     try:
         channels = get_channels()
         if not channels:
@@ -767,23 +776,24 @@ def handle_check_channel_command(sender_id, interface):
         response += "\nPlease reply with the number of the channel you want to view."
         send_message(response, sender_id, interface)
 
-        update_user_state(sender_id, {'command': 'CHECK_CHANNEL', 'step': 1, 'channels': channels})
+        update_user_state(sender_id, {'command': command_name, 'step': 1, 'channels': channels})
 
     except Exception as e:
-        logging.error(f"Error processing check channel command: {e}")
-        send_message("Error processing check channel command.", sender_id, interface)
+        logging.error(f"Error processing {command_name.lower().replace('_', ' ')} command: {e}")
+        send_message(f"Error processing {command_name.lower().replace('_', ' ')} command.", sender_id, interface)
 
 
 def handle_read_channel_command(sender_id, message, state, interface):
+    """Read and display a specific channel's details."""
     try:
         channels = state.get('channels', [])
-        message_number = int(message) - 1
-
-        if message_number < 0 or message_number >= len(channels):
-            send_message("Invalid channel number. Please try again.", sender_id, interface)
+        success, result = validate_item_selection(message, channels, "channel")
+        
+        if not success:
+            send_message(result, sender_id, interface)
             return
 
-        channel_name, channel_url = channels[message_number]
+        channel_name, channel_url = channels[result]
         response = f"Channel Name: {channel_name}\nChannel URL: {channel_url}"
         send_message(response, sender_id, interface)
 
@@ -796,31 +806,11 @@ def handle_read_channel_command(sender_id, message, state, interface):
         send_message("Error processing read channel command.", sender_id, interface)
 
 
-def handle_list_channels_command(sender_id, interface):
-    try:
-        channels = get_channels()
-        if not channels:
-            send_message("No channels available in the directory.", sender_id, interface)
-            return
-
-        response = "Available Channels:\n"
-        for i, channel in enumerate(channels):
-            response += f"{i+1:02d}. Name: {channel[0]}\n"
-        response += "\nPlease reply with the number of the channel you want to view."
-        send_message(response, sender_id, interface)
-
-        update_user_state(sender_id, {'command': 'LIST_CHANNELS', 'step': 1, 'channels': channels})
-
-    except Exception as e:
-        logging.error(f"Error processing list channels command: {e}")
-        send_message("Error processing list channels command.", sender_id, interface)
-
-
 def handle_quick_help_command(sender_id, interface):
     response_part_one = ("✈️QUICK COMMANDS✈️\nSend command below for usage info:\n"
                 "SM,, - Send Mail\nCM - Check Mail\nPB,, - Post Bulletin\nCB,, - Check Bulletins")
     response_part_two = (   
-                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement")
+                "TT - Top MQTT Topics\nWX - Weather (WX or WX,location)\nQA - Quick Announcement\nN,, - Node Info")
     send_message(response_part_one, sender_id, interface)
     time.sleep(3)
     send_message(response_part_two, sender_id, interface)
@@ -983,28 +973,11 @@ def handle_announcement_steps(sender_id, message, step, state, interface):
                 # Prepend "ANNOUNCEMENT: " to the message
                 announcement_text = f"📢 ANNOUNCEMENT 📢 {announcement_text}"
                 
-                # Send the announcement
-                from meshtastic import BROADCAST_NUM
+                # Send the announcement using utility function
+                success, error = send_announcement(interface, channel_idx, announcement_text)
                 
-                # Split into chunks if needed
-                max_payload_size = 200
-                if len(announcement_text) > max_payload_size:
-                    send_message(f"❌ Announcement too long ({len(announcement_text)} chars). Max allowed is {max_payload_size}.", sender_id, interface)
-                    update_user_state(sender_id, None)
-                    return
-                                
-                try:
-                    interface.sendText(
-                        text=announcement_text,
-                        destinationId=BROADCAST_NUM,
-                        channelIndex=channel_idx,
-                        wantAck=False,
-                        wantResponse=False
-                    )
-
-                except Exception as e:
-                    logging.error(f"Error sending announcement chunk {i+1}: {e}")
-                    send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
+                if not success:
+                    send_message(f"❌ {error}", sender_id, interface)
                     update_user_state(sender_id, None)
                     return
                 
@@ -1027,9 +1000,9 @@ def handle_quick_announcement_command(sender_id, interface):
     """Send the configured quick announcement message to the configured channel."""
     try:
         
-        # Get quick announcement configuration from [misc] section
-        announcement_channel = config.getint('misc', 'default_announcement_channel', fallback=0)
-        announcement_message = config.get('misc', 'default_message', fallback='BBS Announcement')
+        # Get quick announcement configuration from [announcement] section
+        announcement_channel = config.getint('announcement', 'default_announcement_channel', fallback=0)
+        announcement_message = config.get('announcement', 'default_message', fallback='BBS Announcement')
         
         # Validate that the channel exists
         channels = get_channel_list(interface)
@@ -1043,30 +1016,15 @@ def handle_quick_announcement_command(sender_id, interface):
         # Prepend announcement prefix to the message
         announcement_text = f"📣 ANNOUNCEMENT 📣 {announcement_message}"
 
-        # Send the announcement
-        from meshtastic import BROADCAST_NUM
+        # Send the announcement using utility function
+        success, error = send_announcement(interface, announcement_channel, announcement_text)
         
-        max_payload_size = 200
-        if len(announcement_text) > max_payload_size:
-            send_message(f"❌ Announcement too long ({len(announcement_text)} chars). Max allowed is {max_payload_size}.", sender_id, interface)
+        if not success:
+            send_message(f"❌ {error}", sender_id, interface)
             update_user_state(sender_id, None)
             return
-
-        try:
-            d = interface.sendText(
-                text=announcement_text,
-                destinationId=BROADCAST_NUM,
-                channelIndex=announcement_channel,
-                wantAck=True,
-                wantResponse=False
-            )      
-
-            print(f"Sent quick announcement with send ID {d.id} to channel {announcement_channel} ({channel_name})")
-
-        except Exception as e:
-            logging.error(f"Error sending quick announcement: {e}")
-            send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
-            return
+        
+        logging.info(f"Sent quick announcement to channel {announcement_channel} ({channel_name})")
         
         # Confirm success
         time.sleep(3)
@@ -1077,3 +1035,157 @@ def handle_quick_announcement_command(sender_id, interface):
         send_message(f"❌ Error sending announcement: {e}", sender_id, interface)
 
     update_user_state(sender_id, None)
+
+
+def handle_quick_node_info_command(sender_id, message, interface):
+    """Handle quick node info command in format: N,,shortname"""
+    try:
+        parts = message.split(",,", 1)
+        if len(parts) != 2 or not parts[1].strip():
+            send_message("Node Info Quick Command format:\nN,,{short_name}", sender_id, interface)
+            return
+        
+        _, short_name = parts
+        short_name = short_name.strip().lower()
+        nodes = get_node_info(interface, short_name)
+        
+        if not nodes:
+            send_message(f"Node with short name '{parts[1].strip()}' not found.", sender_id, interface)
+            return
+        
+        if len(nodes) > 1:
+            send_message(f"Multiple nodes found with short name '{parts[1].strip()}':", sender_id, interface)
+            for node in nodes:
+                # For quick command, just display all matching nodes
+                display_node_info(sender_id, node, interface)
+                time.sleep(3)
+            return
+        
+        # Single node found - display info
+        display_node_info(sender_id, nodes[0], interface)
+        
+    except Exception as e:
+        logging.error(f"Error processing quick node info command: {e}")
+        send_message("Error processing node info command.", sender_id, interface)
+
+
+def handle_node_info_command(sender_id, interface):
+    """Handle the node info command - prompts user for a node short name."""
+    send_message("🔍NODE INFO🔍\nEnter the short name of the node to look up:", sender_id, interface)
+    update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 1})
+
+
+def handle_node_info_steps(sender_id, message, step, interface):
+    """Handle the node info lookup process."""
+    message_strip = message.strip()
+    
+    if step == 1:
+        short_name = message_strip.lower()
+        nodes = get_node_info(interface, short_name)
+        
+        if not nodes:
+            send_message(f"Node with short name '{message_strip}' not found.", sender_id, interface)
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        if len(nodes) > 1:
+            send_message(f"Multiple nodes found with short name '{message_strip}':", sender_id, interface)
+            for idx, node in enumerate(nodes):
+                send_message(f"[{idx}] {node['longName']}", sender_id, interface)
+            send_message("Reply with the number to view details or X to cancel.", sender_id, interface)
+            update_user_state(sender_id, {'command': 'NODE_INFO', 'step': 2, 'nodes': nodes})
+            return
+        
+        # Single node found - display info
+        display_node_info(sender_id, nodes[0], interface)
+        handle_help_command(sender_id, interface, 'utilities')
+    
+    elif step == 2:
+        if message_strip.lower() == 'x':
+            handle_help_command(sender_id, interface, 'utilities')
+            return
+        
+        try:
+            selection = int(message_strip)
+            state = get_user_state(sender_id)
+            nodes = state.get('nodes', [])
+            
+            if 0 <= selection < len(nodes):
+                display_node_info(sender_id, nodes[selection], interface)
+            else:
+                send_message("Invalid selection.", sender_id, interface)
+            
+            handle_help_command(sender_id, interface, 'utilities')
+        except ValueError:
+            send_message("Invalid input. Please enter a number or X to cancel.", sender_id, interface)
+
+
+def display_node_info(sender_id, node, interface):
+    """Display detailed information about a node."""
+    node_id = node['num']
+    short_name = node['shortName']
+    long_name = node['longName']
+    
+    # Get full node info from interface
+    full_node_info = interface.nodes.get(get_node_id_from_num(node_id, interface))
+    
+    info_lines = []
+    info_lines.append(f"📡 Node Info: {short_name} 📡")
+    info_lines.append(f"Long Name: {long_name}")
+    info_lines.append(f"Short Name: {short_name}")
+    
+    if full_node_info:
+        # Hardware model
+        hw_model = full_node_info.get('user', {}).get('hwModel', 'Unknown')
+        if hw_model != 'Unknown':
+            info_lines.append(f"Hardware: {hw_model}")
+        
+        # Role
+        role = full_node_info.get('user', {}).get('role', 'Unknown')
+        if role != 'Unknown':
+            info_lines.append(f"Role: {role}")
+        
+        # Device metrics
+        metrics = full_node_info.get('deviceMetrics', {})
+        if metrics:
+            battery_level = metrics.get('batteryLevel')
+            if battery_level is not None:
+                info_lines.append(f"Battery: {battery_level}%")
+            
+            voltage = metrics.get('voltage')
+            if voltage is not None:
+                info_lines.append(f"Voltage: {voltage:.2f}V")
+            
+            channel_util = metrics.get('channelUtilization')
+            if channel_util is not None:
+                info_lines.append(f"Ch. Util: {channel_util:.1f}%")
+            
+            air_util_tx = metrics.get('airUtilTx')
+            if air_util_tx is not None:
+                info_lines.append(f"Air Util TX: {air_util_tx:.1f}%")
+        
+        # Last heard
+        last_heard = full_node_info.get('lastHeard')
+        if last_heard:
+            current_time = int(time.time())
+            time_diff = current_time - last_heard
+            
+            if time_diff < 60:
+                time_str = f"{time_diff} sec ago"
+            elif time_diff < 3600:
+                time_str = f"{time_diff // 60} min ago"
+            elif time_diff < 86400:
+                time_str = f"{time_diff // 3600} hr ago"
+            else:
+                time_str = f"{time_diff // 86400} days ago"
+            
+            info_lines.append(f"Last Heard: {time_str}")
+        
+        # SNR
+        snr = full_node_info.get('snr')
+        if snr is not None:
+            info_lines.append(f"SNR: {snr:.1f} dB")
+    
+    # Send the info
+    response = "\n".join(info_lines)
+    send_message(response, sender_id, interface)

@@ -10,7 +10,8 @@ from utils import (
     send_bulletin_to_bbs_nodes,
     send_delete_bulletin_to_bbs_nodes,
     send_delete_mail_to_bbs_nodes,
-    send_mail_to_bbs_nodes, send_message, send_channel_to_bbs_nodes
+    send_mail_to_bbs_nodes, send_message, send_channel_to_bbs_nodes,
+    send_urgent_bulletin_notification
 )
 
 
@@ -82,10 +83,9 @@ def add_bulletin(board, sender_short_name, subject, content, bbs_nodes, interfac
     if bbs_nodes and interface:
         send_bulletin_to_bbs_nodes(board, sender_short_name, subject, content, unique_id, bbs_nodes, interface)
 
-    # New logic to send group chat notification for urgent bulletins
-    if board.lower() == "urgent":
-        notification_message = f"💥NEW URGENT BULLETIN💥\nFrom: {sender_short_name}\nTitle: {subject}\nDM 'CB,,Urgent' to view"
-        send_message(notification_message, BROADCAST_NUM, interface)
+    # Send group chat notification for urgent bulletins
+    if board.lower() == "urgent" and interface:
+        send_urgent_bulletin_notification(sender_short_name, subject, interface)
 
     return unique_id
 
